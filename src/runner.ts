@@ -350,6 +350,8 @@ export class WorkflowRunner {
             } else {
                 run.status = "failed";
                 run.error = error instanceof Error ? error.message : String(error);
+                // 失败时清掉并发兄弟分支挂起登记的 ask：run 已不可应答，残留会误导 UI
+                run.pendingAsks = [];
             }
         } finally {
             // 结束或挂起都释放锁：挂起可能等很久，不该锁死用户对话
