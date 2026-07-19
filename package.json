@@ -4,7 +4,8 @@
     "description": "NeuroBook Agent Workflow 编排系统 spike：验证脚本式 durable-execution 核心 API（Task 110）",
     "type": "module",
     "scripts": {
-        "test": "bun test"
+        "test": "bun test",
+        "demo": "bun demo/generate.ts"
     },
     "devDependencies": {
         "@types/bun": "latest",

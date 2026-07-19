@@ -42,7 +42,11 @@ export function traceGraph(journal: ActivityRecord[]): TraceGraph {
     }
 
     const idOf = new Map(nodes.map((n, i) => [n.key, `t${i}`]));
-    const lines = nodes.map((n) => `    ${idOf.get(n.key)}["${n.kind} @${n.key}"]`);
+    const lines = nodes.map((n) => {
+        const label = `${n.kind} @${n.key}`;
+        // ask 节点用体育场形突出人类参与点；其余方框
+        return n.kind === "ask" ? `    ${idOf.get(n.key)}(["${label}"])` : `    ${idOf.get(n.key)}["${label}"]`;
+    });
     const edgeLines = edges.map(([a, b]) => `    ${idOf.get(a)} --> ${idOf.get(b)}`);
     return { nodes, edges, mermaid: ["graph TD", ...lines, ...edgeLines].join("\n") };
 }
