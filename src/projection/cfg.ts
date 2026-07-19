@@ -12,11 +12,27 @@ export type CfgNode = {
 
 export type CfgGraph = { nodes: CfgNode[]; mermaid: string };
 
-/** 判定为编排调用的成员方法名（句法尽力而为，不保证完备——这正是近似投影的定位） */
-const ORCH_METHODS = new Set([
-    "invoke", "create", "acquire", "profile", "open", "checkout", "append", "excursion",
-    "transcript", "ask", "map", "all", "read", "caller",
-]);
+/** handle 方法：任意 receiver 都算（invoke 可能挂在 writer/actor 等变量上） */
+const HANDLE_METHODS = new Set(["invoke", "append", "checkout", "excursion", "transcript"]);
+
+/** 标签净化：折叠空白、去引号、截断——mermaid 标签内不能出现引号与换行 */
+const sanitize = (s: string) => s.replace(/\s+/g, " ").replaceAll('"', "'").slice(0, 40);
+
+/** receiver 展示名：简单标识符链保留，复杂表达式折叠为 (…)，防止整段代码进标签 */
+const shortReceiver = (recv: string) => (/^[\w$.]+$/.test(recv) && recv.length <= 20 ? recv : "(…)");
+
+/**
+ * 判定编排调用并给出展示名：按命名空间收窄，避免把 Array.prototype.map 等误报进图。
+ * 返回 null 表示不是编排调用。
+ */
+function orchCallName(receiver: string, method: string): string | null {
+    if (["map", "all", "ask", "caller"].includes(method)) return receiver === "wf" ? `wf.${method}` : null;
+    if (method === "read") return receiver.endsWith("workspace") ? "wf.workspace.read" : null;
+    if (["create", "acquire", "profile"].includes(method)) return receiver.endsWith("agents") ? `wf.agents.${method}` : null;
+    if (method === "open") return receiver.endsWith("sessions") ? "wf.sessions.open" : null;
+    if (HANDLE_METHODS.has(method)) return `${shortReceiver(receiver)}.${method}`;
+    return null;
+}
 
 /**
  * 投影二：AST 近似控制流图。解析脚本源码（fn.toString()），
@@ -47,14 +63,13 @@ export function extractCfg(source: string): CfgGraph {
 
     const visit = (node: ts.Node): void => {
         if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-            const method = node.expression.name.text;
-            if (ORCH_METHODS.has(method)) {
-                const receiver = node.expression.expression.getText(sf);
-                const first = node.arguments[0]?.getText(sf) ?? "";
+            const receiver = node.expression.expression.getText(sf);
+            const name = orchCallName(receiver, node.expression.name.text);
+            if (name !== null) {
                 nodes.push({
                     id: nodes.length,
-                    call: `${receiver}.${method}`,
-                    hint: first.length > 40 ? `${first.slice(0, 37)}...` : first,
+                    call: name,
+                    hint: sanitize(node.arguments[0]?.getText(sf) ?? ""),
                     controls: controlOf(node),
                 });
             }
@@ -63,7 +78,7 @@ export function extractCfg(source: string): CfgGraph {
     };
     visit(sf);
 
-    const lines = nodes.map((n) => `    c${n.id}["${n.call}${n.controls.length ? ` (${n.controls.join(">")})` : ""}"]`);
+    const lines = nodes.map((n) => `    c${n.id}["${sanitize(n.call)}${n.controls.length ? ` (${n.controls.join("›")})` : ""}"]`);
     const edges = nodes.slice(1).map((n, i) => {
         // 有控制结构包裹的用虚线：静态图无法断言必经
         const dashed = n.controls.length > 0 || nodes[i].controls.length > 0;

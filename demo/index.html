@@ -72,52 +72,40 @@
         <div>
             <p class="note">CFG 解析脚本源码，<b>虚线 = 被 if / map 回调包裹、静态无法断言必经</b>。if 的两种可能都在这张图上（如第二个 analyst.invoke 标注 if）；trace 只画实际发生的执行——静态图管"可能"，动态图管"事实"，两图配合。</p>
             <div class="graph"><pre class="mermaid">graph TD
-    c0["(await wf.workspace.read("manuscript/book.md")).split(`
----
-`).map"]
-    c1["wf.workspace.read"]
-    c2["wf.map"]
-    c3["(await wf.agents.create("summarizer.chapter", { ephemeral: !0 })).invoke (map-fn)"]
-    c4["wf.agents.create (map-fn)"]
-    c5["wf.agents.create"]
-    c6["analyst.invoke"]
-    c7["analyst.invoke (if)"]
-    c8["wf.ask"]
-    c9["chapters.map"]
-    c10["wf.map"]
-    c11["(await wf.agents.create("style.extractor", { ephemeral: !0 })).invoke (map-fn)"]
-    c12["wf.agents.create (map-fn)"]
+    c0["wf.workspace.read"]
+    c1["wf.map"]
+    c2["(…).invoke (map-fn)"]
+    c3["wf.agents.create (map-fn)"]
+    c4["wf.agents.create"]
+    c5["analyst.invoke"]
+    c6["analyst.invoke (if)"]
+    c7["wf.ask"]
+    c8["wf.map"]
+    c9["(…).invoke (map-fn)"]
+    c10["wf.agents.create (map-fn)"]
     c0 --> c1
-    c1 --> c2
+    c1 -.-> c2
     c2 -.-> c3
     c3 -.-> c4
-    c4 -.-> c5
-    c5 --> c6
+    c4 --> c5
+    c5 -.-> c6
     c6 -.-> c7
-    c7 -.-> c8
-    c8 --> c9
-    c9 --> c10
-    c10 -.-> c11
-    c11 -.-> c12</pre></div>
+    c7 --> c8
+    c8 -.-> c9
+    c9 -.-> c10</pre></div>
         </div>
     </div>
-    <table><tr><th>节点</th><th>调用</th><th>控制结构</th><th>首参摘要</th></tr><tr><td>c0</td><td><code>(await wf.workspace.read("manuscript/book.md")).split(`
----
-`).map</code></td><td></td><td class="fp">(text, i) =&gt; ({ id: `ch${i + 1}`, tex...</td></tr>
-<tr><td>c1</td><td><code>wf.workspace.read</code></td><td></td><td class="fp">"manuscript/book.md"</td></tr>
-<tr><td>c2</td><td><code>wf.map</code></td><td></td><td class="fp">chapters</td></tr>
-<tr><td>c3</td><td><code>(await wf.agents.create("summarizer.chapter", { ephemeral: !0 })).invoke</code></td><td><span class="chip">map-fn</span></td><td class="fp">{ input: { text: ch.text } }</td></tr>
-<tr><td>c4</td><td><code>wf.agents.create</code></td><td><span class="chip">map-fn</span></td><td class="fp">"summarizer.chapter"</td></tr>
-<tr><td>c5</td><td><code>wf.agents.create</code></td><td></td><td class="fp">"plot.analyst"</td></tr>
-<tr><td>c6</td><td><code>analyst.invoke</code></td><td></td><td class="fp">{ input: { briefs } }</td></tr>
-<tr><td>c7</td><td><code>analyst.invoke</code></td><td><span class="chip">if</span></td><td class="fp">{ mode: "followup", input: { focus: "...</td></tr>
-<tr><td>c8</td><td><code>wf.ask</code></td><td></td><td class="fp">{
-      kind: "select",
-      multi: ...</td></tr>
-<tr><td>c9</td><td><code>chapters.map</code></td><td></td><td class="fp">(ch) =&gt; ({ id: ch.id, label: ch.id })</td></tr>
-<tr><td>c10</td><td><code>wf.map</code></td><td></td><td class="fp">picks</td></tr>
-<tr><td>c11</td><td><code>(await wf.agents.create("style.extractor", { ephemeral: !0 })).invoke</code></td><td><span class="chip">map-fn</span></td><td class="fp">{ input: { chapter: chapterId, mode: ...</td></tr>
-<tr><td>c12</td><td><code>wf.agents.create</code></td><td><span class="chip">map-fn</span></td><td class="fp">"style.extractor"</td></tr></table>
+    <table><tr><th>节点</th><th>调用</th><th>控制结构</th><th>首参摘要</th></tr><tr><td>c0</td><td><code>wf.workspace.read</code></td><td></td><td class="fp">'manuscript/book.md'</td></tr>
+<tr><td>c1</td><td><code>wf.map</code></td><td></td><td class="fp">chapters</td></tr>
+<tr><td>c2</td><td><code>(…).invoke</code></td><td><span class="chip">map-fn</span></td><td class="fp">{ input: { text: ch.text } }</td></tr>
+<tr><td>c3</td><td><code>wf.agents.create</code></td><td><span class="chip">map-fn</span></td><td class="fp">'summarizer.chapter'</td></tr>
+<tr><td>c4</td><td><code>wf.agents.create</code></td><td></td><td class="fp">'plot.analyst'</td></tr>
+<tr><td>c5</td><td><code>analyst.invoke</code></td><td></td><td class="fp">{ input: { briefs } }</td></tr>
+<tr><td>c6</td><td><code>analyst.invoke</code></td><td><span class="chip">if</span></td><td class="fp">{ mode: 'followup', input: { focus: '\u4</td></tr>
+<tr><td>c7</td><td><code>wf.ask</code></td><td></td><td class="fp">{ kind: 'select', multi: !0, title: '\u9</td></tr>
+<tr><td>c8</td><td><code>wf.map</code></td><td></td><td class="fp">picks</td></tr>
+<tr><td>c9</td><td><code>(…).invoke</code></td><td><span class="chip">map-fn</span></td><td class="fp">{ input: { chapter: chapterId, mode: sty</td></tr>
+<tr><td>c10</td><td><code>wf.agents.create</code></td><td><span class="chip">map-fn</span></td><td class="fp">'style.extractor'</td></tr></table>
 </section>
 
 <!-- 板块 3：缓存失效着色 -->
