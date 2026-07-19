@@ -42,11 +42,30 @@ export function traceGraph(journal: ActivityRecord[]): TraceGraph {
     }
 
     const idOf = new Map(nodes.map((n, i) => [n.key, `t${i}`]));
-    const lines = nodes.map((n) => {
+    const labelOf = (n: TraceNode) => {
         const label = `${n.kind} @${n.key}`;
         // ask 节点用体育场形突出人类参与点；其余方框
-        return n.kind === "ask" ? `    ${idOf.get(n.key)}(["${label}"])` : `    ${idOf.get(n.key)}["${label}"]`;
-    });
+        return n.kind === "ask" ? `${idOf.get(n.key)}(["${label}"])` : `${idOf.get(n.key)}["${label}"]`;
+    };
+    // 并行分支组：同一 map/all 派生的子路径圈进 subgraph，图上明示并发结构
+    const groupOf = (path: string) => path.match(/^(.*\/\d+):\d+$/)?.[1] ?? null;
+    const groups = new Map<string, TraceNode[]>();
+    const plain: TraceNode[] = [];
+    for (const n of nodes) {
+        const group = groupOf(n.path);
+        if (group === null) { plain.push(n); continue; }
+        const list = groups.get(group) ?? [];
+        list.push(n);
+        groups.set(group, list);
+    }
+    const lines: string[] = plain.map((n) => `    ${labelOf(n)}`);
+    let groupIndex = 0;
+    for (const [group, members] of groups) {
+        const branchCount = new Set(members.map((m) => m.path)).size;
+        lines.push(`    subgraph g${groupIndex++}["并行 ×${branchCount}（${group}）"]`);
+        for (const m of members) lines.push(`        ${labelOf(m)}`);
+        lines.push("    end");
+    }
     const edgeLines = edges.map(([a, b]) => `    ${idOf.get(a)} --> ${idOf.get(b)}`);
     return { nodes, edges, mermaid: ["graph TD", ...lines, ...edgeLines].join("\n") };
 }

@@ -39,8 +39,9 @@ agents.register("summarizer.chapter", async ({ input }) => {
     await sleep(20 + ((input as { text: string }).text.length % 4) * 15); // 制造乱序完成
     return { message: "已摘要", data: { brief: (input as { text: string }).text.split("\n")[0] } };
 });
-agents.register("plot.analyst", async ({ input }) => {
+agents.register("plot.analyst", async ({ mode, input }) => {
     await sleep(40);
+    if (mode === "followup") return { message: "深度分析完成", data: { foreshadowing: ["玉佩来历", "宗门隐秘"] } };
     return { message: "剧情分析完成", data: { arcs: (input as { briefs: unknown[] }).briefs.length, theme: "逆袭" } };
 });
 agents.register("style.extractor", async ({ input }) => {
@@ -78,6 +79,12 @@ const splitBook: WorkflowDefinition = {
         const analyst = await wf.agents.create("plot.analyst", { ephemeral: true });
         const plot = await analyst.invoke({ input: { briefs } });
 
+        // if 条件分支：长篇追加深度分析（静态 CFG 里是虚线节点，trace 里只有走到才出现）
+        if ((plot.result.data as { arcs: number }).arcs >= 4) {
+            wf.log("检测到 4 条剧情弧线（长篇），追加深度伏笔分析");
+            await analyst.invoke({ mode: "followup", input: { focus: "伏笔与铺垫" } });
+        }
+
         const picks = await wf.ask({
             kind: "select", multi: true, title: "选择要提取文风的章节",
             options: chapters.map((ch) => ({ id: ch.id, label: ch.id })),
@@ -102,20 +109,37 @@ const askKey = waitingView.pendingAsks[0].key;
 const askAnswer: JsonValue = ["ch2", "ch4"];
 const doneView = await runner.resume(waitingView.runId, { [askKey]: askAnswer });
 
-// —— 播放器帧：每个 activity 事件配一张"当时的 trace 图"（含高亮） ——
+// —— 播放器帧：activity_started 渲染"进行中"虚线节点（并发可见），完成后转实心 ——
 type Frame = { ev: WorkflowEvent; graph?: string };
 const order: ActivityRecord[] = [];
 const seen = new Map<string, number>();
+const running = new Map<string, ActivityRecord>(); // 进行中的伪记录（result 占位 null）
+
+function buildGraph(highlightKey?: string): string {
+    const combined = [...order, ...running.values()];
+    const g = traceGraph(combined);
+    const styles: string[] = [];
+    combined.forEach((r, i) => {
+        if (running.has(r.key)) styles.push(`    style t${i} fill:#33200f,stroke:#d97706,stroke-dasharray:5 5,color:#ffcf87`);
+        else if (r.key === highlightKey) styles.push(`    style t${i} fill:#f9e2af,stroke:#b45309,stroke-width:2px`);
+    });
+    return [g.mermaid, ...styles].join("\n");
+}
+
 const frames: Frame[] = liveEvents.map((ev) => {
-    if (ev.type !== "activity") return { ev };
-    let hi = seen.get(ev.record.key);
-    if (hi === undefined) {
-        hi = order.length;
-        order.push(ev.record);
-        seen.set(ev.record.key, hi);
+    if (ev.type === "activity_started") {
+        running.set(ev.key, { key: ev.key, path: ev.path, seq: ev.seq, kind: ev.kind, fingerprint: "", result: null });
+        return { ev, graph: buildGraph() };
     }
-    const graph = `${traceGraph(order).mermaid}\n    style t${hi} fill:#f9e2af,stroke:#b45309,stroke-width:2px`;
-    return { ev, graph };
+    if (ev.type === "activity") {
+        running.delete(ev.record.key);
+        if (!seen.has(ev.record.key)) {
+            seen.set(ev.record.key, order.length);
+            order.push(ev.record);
+        }
+        return { ev, graph: buildGraph(ev.record.key) };
+    }
+    return { ev };
 });
 
 // —— 板块 3：模拟"编辑脚本"（改 style 提取参数）后 rerun，同 journal 局部失效 ——
@@ -242,7 +266,7 @@ const html = `<!DOCTYPE html>
 <!-- 板块 1：实时回放播放器 -->
 <section>
     <h2>① 实时运行视图（接入后的用户体验）</h2>
-    <p class="note">「拆书」workflow 的真实事件流回放：trace 图随每个 Activity 完成逐步点亮（黄色高亮 = 最新事件），并发摘要分支乱序完成、进度与日志同步推进；跑到 <b>ask</b> 时 run 挂起，等你应答后 resume——注意 resume 后前缀 11 条快速闪过（缓存命中，零重跑）。</p>
+    <p class="note">「拆书」workflow 的真实事件流回放：<b style="color:#ffcf87">虚线橙节点 = 正在执行</b>——并发摘要阶段会同时挂着 2 个（concurrency=2），并行一眼可见；完成后转实心（黄色高亮 = 最新完成），并行分支组由 subgraph 框出。跑到 <b>ask</b> 时 run 挂起等你应答；resume 后前缀记录以「⚡缓存命中」快闪掠过（零重跑）。剧情分析后有一个 <code>if</code> 条件步（长篇追加深度伏笔分析）——它只在实际走到时出现在 trace 里，未走的分支去看投影②。</p>
     <button id="play-btn">▶ 开始运行</button><span id="live-badge" class="badge idle">未开始</span>
     <div id="live-progress"></div>
     <div id="ask-box">
@@ -265,7 +289,7 @@ const html = `<!DOCTYPE html>
             <div class="graph"><pre class="mermaid">${skeleton}</pre></div>
         </div>
         <div>
-            <p class="note">CFG 解析脚本源码，虚线 = 被 if / map 回调包裹、静态无法断言必经。</p>
+            <p class="note">CFG 解析脚本源码，<b>虚线 = 被 if / map 回调包裹、静态无法断言必经</b>。if 的两种可能都在这张图上（如第二个 analyst.invoke 标注 if）；trace 只画实际发生的执行——静态图管"可能"，动态图管"事实"，两图配合。</p>
             <div class="graph"><pre class="mermaid">${cfg.mermaid}</pre></div>
         </div>
     </div>
@@ -331,6 +355,10 @@ const html = `<!DOCTYPE html>
         } else if (ev.type === "log") {
             addLog("📋 " + ev.message);
             delay = 350;
+        } else if (ev.type === "activity_started") {
+            if (frame.graph) await drawGraph(frame.graph);
+            addLog("▶ 执行中 " + ev.kind + " @" + ev.key, "act");
+            delay = 220;
         } else if (ev.type === "activity") {
             if (frame.graph) await drawGraph(frame.graph);
             addLog((ev.cached ? "⚡ 缓存命中 " : "● ") + ev.record.kind + " @" + ev.record.key, ev.cached ? "hit" : "act");

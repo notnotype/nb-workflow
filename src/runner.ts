@@ -83,6 +83,7 @@ class Runtime {
             this.exec.dirtyFrom.set(path, seq);
             this.run.journal.delete(key);
         }
+        this.env.onEvent?.({ type: "activity_started", runId: this.run.runId, key, path, seq, kind });
         const result = await fn();
         const record: ActivityRecord = { key, path, seq, kind, fingerprint: fp, result };
         this.run.journal.set(key, record);
@@ -199,6 +200,8 @@ class Handle implements SessionHandle {
  */
 export type WorkflowEvent =
     | { type: "status"; runId: string; status: RunStatus }
+    /** 真实执行开始（缓存命中不发）：前端据此渲染"进行中"节点，并发在图上可见 */
+    | { type: "activity_started"; runId: string; key: string; path: string; seq: number; kind: string }
     | { type: "activity"; runId: string; record: ActivityRecord; cached: boolean }
     | { type: "ask_pending"; runId: string; ask: PendingAsk }
     | { type: "log"; runId: string; message: string }
