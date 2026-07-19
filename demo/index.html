@@ -2,43 +2,65 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>nb-workflow · 三种投影演示</title>
+<title>nb-workflow · 运行演示</title>
 <style>
     body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 0; background: #12141a; color: #d8dce6; }
-    header { padding: 24px 32px 8px; border-bottom: 1px solid #262b36; }
-    h1 { margin: 0 0 4px; font-size: 22px; } h1 small { color: #7a8399; font-weight: normal; font-size: 13px; }
+    header { padding: 22px 32px 10px; border-bottom: 1px solid #262b36; }
+    h1 { margin: 0 0 4px; font-size: 21px; } h1 small { color: #7a8399; font-weight: normal; font-size: 13px; }
     section { padding: 20px 32px; border-bottom: 1px solid #1d212b; }
     h2 { font-size: 16px; color: #8ab4ff; margin: 0 0 6px; }
-    .note { color: #9aa3b5; font-size: 13px; margin: 0 0 14px; max-width: 72em; line-height: 1.6; }
-    .graph { background: #f7f8fa; border-radius: 8px; padding: 12px; overflow-x: auto; }
+    .note { color: #9aa3b5; font-size: 13px; margin: 0 0 14px; max-width: 76em; line-height: 1.6; }
+    .graph { background: #f7f8fa; border-radius: 8px; padding: 12px; overflow-x: auto; min-height: 60px; }
     .cols { display: flex; gap: 16px; flex-wrap: wrap; } .cols > div { flex: 1 1 420px; min-width: 0; }
     table { border-collapse: collapse; font-size: 12px; width: 100%; }
     th, td { border: 1px solid #2a3040; padding: 4px 8px; text-align: left; vertical-align: top; }
     th { background: #1a1e28; color: #8ab4ff; }
-    code { color: #ffcf87; } .fp { color: #7a8399; font-family: Consolas, monospace; max-width: 34em; word-break: break-all; }
+    code { color: #ffcf87; } .fp { color: #7a8399; font-family: Consolas, monospace; word-break: break-all; }
     .chip { display: inline-block; background: #223; border: 1px solid #354060; border-radius: 10px; padding: 1px 8px; font-size: 11px; color: #a9c4ff; }
-    .ask-card { background: #1c1a12; border: 1px solid #5c4a1e; border-radius: 8px; padding: 12px 16px; max-width: 40em; }
-    .ask-title { color: #ffd479; font-weight: 600; margin-bottom: 8px; }
-    .ask-meta { color: #9aa3b5; font-size: 12px; margin-top: 8px; }
-    .stat { display: inline-block; margin-right: 18px; color: #9aa3b5; font-size: 13px; }
-    .stat b { color: #7ee787; font-size: 16px; }
+    button { background: #24406e; color: #cfe1ff; border: 1px solid #3d5a99; border-radius: 6px; padding: 6px 18px; cursor: pointer; font-size: 14px; }
+    button:hover { background: #2d5090; } button:disabled { opacity: .4; cursor: default; }
+    .badge { display: inline-block; border-radius: 10px; padding: 2px 12px; font-size: 12px; margin-left: 10px; }
+    .badge.running { background: #1c2f52; color: #8ab4ff; } .badge.waiting { background: #4a3a12; color: #ffd479; }
+    .badge.completed { background: #14361d; color: #7ee787; } .badge.idle { background: #262b36; color: #9aa3b5; }
+    #live-progress { color: #9aa3b5; font-size: 13px; margin: 8px 0; }
+    #live-logs { list-style: none; margin: 8px 0; padding: 0; font-size: 12px; color: #9aa3b5; max-height: 140px; overflow-y: auto; }
+    #live-logs li { padding: 2px 0; border-bottom: 1px dashed #1d212b; }
+    #live-logs li.act { color: #6f7a90; } #live-logs li.hit { color: #4f8f5f; }
+    #ask-box { display: none; background: #1c1a12; border: 1px solid #5c4a1e; border-radius: 8px; padding: 12px 16px; margin: 10px 0; max-width: 44em; }
+    #ask-box .ask-title { color: #ffd479; font-weight: 600; margin-bottom: 8px; }
+    .legend span { display: inline-block; margin-right: 14px; font-size: 12px; }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
 </style>
 </head>
 <body>
 <header>
-    <h1>nb-workflow 三种投影 <small>Task 110 spike · 「拆书」场景实跑产物（挂起 → resume）</small></h1>
-    <p class="note">
-        <span class="stat">run 状态流转 <b>running → waiting → completed</b></span>
-        <span class="stat">journal 记录 <b>16</b> 条</span>
-        <span class="stat">resume 时缓存命中 <b>11</b> 条（摘要/分析零重跑）</span>
-        <span class="stat">最终结果 styles <b>2</b> 章</span>
-    </p>
+    <h1>nb-workflow 运行演示 <small>Task 110 spike · 全部内容来自 mock 实跑事件流</small></h1>
 </header>
 
+<!-- 板块 1：实时回放播放器 -->
 <section>
-    <h2>投影一 · 声明骨架（运行前）</h2>
-    <p class="note">来自 workflow 元数据 phases，不执行、不解析代码。回答"这个 workflow 大概长什么样"，也是 UI 进度分组的依据。</p>
-    <div class="graph"><pre class="mermaid">graph TD
+    <h2>① 实时运行视图（接入后的用户体验）</h2>
+    <p class="note">「拆书」workflow 的真实事件流回放：trace 图随每个 Activity 完成逐步点亮（黄色高亮 = 最新事件），并发摘要分支乱序完成、进度与日志同步推进；跑到 <b>ask</b> 时 run 挂起，等你应答后 resume——注意 resume 后前缀 11 条快速闪过（缓存命中，零重跑）。</p>
+    <button id="play-btn">▶ 开始运行</button><span id="live-badge" class="badge idle">未开始</span>
+    <div id="live-progress"></div>
+    <div id="ask-box">
+        <div class="ask-title" id="ask-title"></div>
+        <div id="ask-opts"></div>
+        <div style="margin-top:10px"><button id="ask-answer-btn"></button></div>
+    </div>
+    <div class="cols">
+        <div class="graph" id="live-graph"><span style="color:#7a8399">点击「开始运行」</span></div>
+        <div><ul id="live-logs"></ul></div>
+    </div>
+</section>
+
+<!-- 板块 2：静态投影 -->
+<section>
+    <h2>② 静态投影：声明骨架 + AST 近似 CFG</h2>
+    <div class="cols">
+        <div>
+            <p class="note">骨架来自 phases 元数据（运行前可见）。</p>
+            <div class="graph"><pre class="mermaid">graph TD
     p0["逐章摘要（小模型 ×N 并发）"]
     p1["剧情分析（高性能模型吃 brief）"]
     p2["人工圈选章节"]
@@ -46,13 +68,10 @@
     p0 --> p1
     p1 --> p2
     p2 --> p3</pre></div>
-</section>
-
-<section>
-    <h2>投影二 · AST 近似控制流图（静态，尽力而为）</h2>
-    <p class="note">解析脚本源码，识别 wf.* / handle 编排调用点；虚线 = 被 if/for/map 回调包裹、静态无法断言必经。允许漏报误报——这是"程序"的近似图。</p>
-    <div class="cols">
-        <div class="graph"><pre class="mermaid">graph TD
+        </div>
+        <div>
+            <p class="note">CFG 解析脚本源码，虚线 = 被 if / map 回调包裹、静态无法断言必经。</p>
+            <div class="graph"><pre class="mermaid">graph TD
     c0["(await wf.workspace.read("manuscript/book.md")).split(`
 ---
 `).map"]
@@ -78,7 +97,9 @@
     c8 --> c9
     c9 -.-> c10
     c10 -.-> c11</pre></div>
-        <div><table><tr><th>节点</th><th>调用</th><th>控制结构</th><th>首参摘要</th></tr><tr><td>c0</td><td><code>(await wf.workspace.read("manuscript/book.md")).split(`
+        </div>
+    </div>
+    <table><tr><th>节点</th><th>调用</th><th>控制结构</th><th>首参摘要</th></tr><tr><td>c0</td><td><code>(await wf.workspace.read("manuscript/book.md")).split(`
 ---
 `).map</code></td><td></td><td class="fp">(text, i) =&gt; ({ id: `ch${i + 1}`, tex...</td></tr>
 <tr><td>c1</td><td><code>wf.workspace.read</code></td><td></td><td class="fp">"manuscript/book.md"</td></tr>
@@ -92,53 +113,18 @@
       multi: ...</td></tr>
 <tr><td>c8</td><td><code>chapters.map</code></td><td></td><td class="fp">(ch) =&gt; ({ id: ch.id, label: ch.id })</td></tr>
 <tr><td>c9</td><td><code>wf.map</code></td><td></td><td class="fp">picks</td></tr>
-<tr><td>c10</td><td><code>(await wf.agents.create("style.extractor", { ephemeral: !0 })).invoke</code></td><td><span class="chip">map-fn</span></td><td class="fp">{ input: { chapter: chapterId } }</td></tr>
-<tr><td>c11</td><td><code>wf.agents.create</code></td><td><span class="chip">map-fn</span></td><td class="fp">"style.extractor"</td></tr></table></div>
-    </div>
+<tr><td>c10</td><td><code>(await wf.agents.create("style.extractor", { ephemeral: !0 })).invoke</code></td><td><span class="chip">map-fn</span></td><td class="fp">{ input: { chapter: chapterId, mode: ...</td></tr>
+<tr><td>c11</td><td><code>wf.agents.create</code></td><td><span class="chip">map-fn</span></td><td class="fp">"style.extractor"</td></tr></table>
 </section>
 
+<!-- 板块 3：缓存失效着色 -->
 <section>
-    <h2>投影三 · 动态 trace（精确执行图）</h2>
-    <p class="note">journal 本身就是图：节点 = Activity，同路径顺序连边，map 分支从派生点接入并汇合。左：挂起态（跑到 ask 停下，4 条摘要分支已完成入账）；右：resume 后完成态（新增圈选章节的 style 分支）。体育场形节点 = ask 人类参与点。</p>
-    <div class="cols">
-        <div>
-            <p class="note">⏸ waiting 快照（11 条记录）</p>
-            <div class="graph"><pre class="mermaid">graph TD
-    t0["workspace.read @root#0"]
-    t1["agents.create @root#2"]
-    t2["agents.invoke @root#3"]
-    t3["agents.create @root/1:0#0"]
-    t4["agents.invoke @root/1:0#1"]
-    t5["agents.create @root/1:1#0"]
-    t6["agents.invoke @root/1:1#1"]
-    t7["agents.create @root/1:2#0"]
-    t8["agents.invoke @root/1:2#1"]
-    t9["agents.create @root/1:3#0"]
-    t10["agents.invoke @root/1:3#1"]
-    t0 --> t1
-    t1 --> t2
-    t3 --> t4
-    t5 --> t6
-    t7 --> t8
-    t9 --> t10
-    t0 --> t3
-    t4 --> t1
-    t0 --> t5
-    t6 --> t1
-    t0 --> t7
-    t8 --> t1
-    t0 --> t9
-    t10 --> t1</pre></div>
-            
-        <div class="ask-card">
-            <div class="ask-title">⏸ 选择要提取文风的章节</div>
-            <div class="ask-opts"><span class="chip">ch1</span> <span class="chip">ch2</span> <span class="chip">ch3</span> <span class="chip">ch4</span></div>
-            <div class="ask-meta">ask key = <code>root#4</code>　应答：<code>["ch2","ch4"]</code></div>
-        </div>
-        </div>
-        <div>
-            <p class="note">✅ completed 快照（16 条记录，前 11 条为缓存命中）</p>
-            <div class="graph"><pre class="mermaid">graph TD
+    <h2>③ 改脚本后 rerun：缓存局部失效</h2>
+    <p class="note">完成后"编辑脚本"——把文风提取参数从 <code>白描</code> 改为 <code>工笔细描</code>，对同一 run rerun：
+        <b style="color:#7ee787">14 条命中缓存</b>（读稿 / 摘要 / 分析 / ask 应答全部不重跑），
+        <b style="color:#ffcf87">2 条重跑</b>（只有两个 style 分支里参数变了的 invoke）。兄弟路径互不影响。</p>
+    <p class="legend"><span><span class="dot" style="background:#2ea043"></span>缓存命中</span><span><span class="dot" style="background:#d97706"></span>参数变更重跑</span></p>
+    <div class="graph"><pre class="mermaid">graph TD
     t0["workspace.read @root#0"]
     t1["agents.create @root#2"]
     t2["agents.invoke @root#3"]
@@ -173,35 +159,123 @@
     t0 --> t10
     t11 --> t1
     t3 --> t12
-    t3 --> t14</pre></div>
-        </div>
-    </div>
+    t3 --> t14
+    style t0 fill:#14261a,stroke:#2ea043,color:#7ee787
+    style t1 fill:#14261a,stroke:#2ea043,color:#7ee787
+    style t2 fill:#14261a,stroke:#2ea043,color:#7ee787
+    style t3 fill:#14261a,stroke:#2ea043,color:#7ee787
+    style t4 fill:#14261a,stroke:#2ea043,color:#7ee787
+    style t5 fill:#14261a,stroke:#2ea043,color:#7ee787
+    style t6 fill:#14261a,stroke:#2ea043,color:#7ee787
+    style t7 fill:#14261a,stroke:#2ea043,color:#7ee787
+    style t8 fill:#14261a,stroke:#2ea043,color:#7ee787
+    style t9 fill:#14261a,stroke:#2ea043,color:#7ee787
+    style t10 fill:#14261a,stroke:#2ea043,color:#7ee787
+    style t11 fill:#14261a,stroke:#2ea043,color:#7ee787
+    style t12 fill:#14261a,stroke:#2ea043,color:#7ee787
+    style t13 fill:#33200f,stroke:#d97706,color:#ffcf87
+    style t14 fill:#14261a,stroke:#2ea043,color:#7ee787
+    style t15 fill:#33200f,stroke:#d97706,color:#ffcf87</pre></div>
 </section>
 
+<!-- 板块 4：RP 持久参与者 session 树 -->
 <section>
-    <h2>Journal 明细（ActivityKey = 路径 # 序号 · kind · 参数指纹）</h2>
-    <p class="note">重放规则：四元组全匹配 = 命中返回记录值；首次不匹配 = 本路径后缀失效转真跑，兄弟路径不受影响。</p>
-    <table><tr><th>key</th><th>kind</th><th>参数指纹</th><th>记录结果</th></tr><tr><td><code>root#0</code></td><td>workspace.read</td><td class="fp">{"path":"manuscript/book.md"}</td><td class="fp">"# 第一章\n主角出场，捡到神秘玉佩。\n---\n# 第二章\n玉佩引来追杀，主角初显身手。\n---\n# 第三章\n拜入宗门，结识挚友。\n---\n# 第四章\n宗门大比，一鸣惊人。"</td></tr>
-<tr><td><code>root#2</code></td><td>agents.create</td><td class="fp">{"ephemeral":true,"initial":null,"parent":null,"profileKey":"plot.analyst","tags":[]}</td><td class="fp">{"sessionId":5}</td></tr>
-<tr><td><code>root#3</code></td><td>agents.invoke</td><td class="fp">{"id":5,"input":{"briefs":[{"brief":"# 第一章","chapter":"ch1"},{"brief":"# 第二章","chapter":"ch2"},{"brief":"# 第三章","chapter":"ch3"},{"brief":"# 第四章","chapter":"ch4"}]},"message":null,"mode":"prompt"}</td><td class="fp">{"status":"completed","result":{"message":"剧情分析完成","data":{"arcs":4,"theme":"逆袭"}},"newLeaf":10}</td></tr>
-<tr><td><code>root#4</code></td><td>ask</td><td class="fp">{"kind":"select","multi":true,"options":[{"id":"ch1","label":"ch1"},{"id":"ch2","label":"ch2"},{"id":"ch3","label":"ch3"},{"id":"ch4","label":"ch4"}],"title":"选择要提取文风的章节"}</td><td class="fp">["ch2","ch4"]</td></tr>
-<tr><td><code>root/1:0#0</code></td><td>agents.create</td><td class="fp">{"ephemeral":true,"initial":null,"parent":null,"profileKey":"summarizer.chapter","tags":[]}</td><td class="fp">{"sessionId":1}</td></tr>
-<tr><td><code>root/1:0#1</code></td><td>agents.invoke</td><td class="fp">{"id":1,"input":{"text":"# 第一章\n主角出场，捡到神秘玉佩。"},"message":null,"mode":"prompt"}</td><td class="fp">{"status":"completed","result":{"message":"已摘要","data":{"brief":"# 第一章"}},"newLeaf":3}</td></tr>
-<tr><td><code>root/1:1#0</code></td><td>agents.create</td><td class="fp">{"ephemeral":true,"initial":null,"parent":null,"profileKey":"summarizer.chapter","tags":[]}</td><td class="fp">{"sessionId":2}</td></tr>
-<tr><td><code>root/1:1#1</code></td><td>agents.invoke</td><td class="fp">{"id":2,"input":{"text":"# 第二章\n玉佩引来追杀，主角初显身手。"},"message":null,"mode":"prompt"}</td><td class="fp">{"status":"completed","result":{"message":"已摘要","data":{"brief":"# 第二章"}},"newLeaf":4}</td></tr>
-<tr><td><code>root/1:2#0</code></td><td>agents.create</td><td class="fp">{"ephemeral":true,"initial":null,"parent":null,"profileKey":"summarizer.chapter","tags":[]}</td><td class="fp">{"sessionId":3}</td></tr>
-<tr><td><code>root/1:2#1</code></td><td>agents.invoke</td><td class="fp">{"id":3,"input":{"text":"# 第三章\n拜入宗门，结识挚友。"},"message":null,"mode":"prompt"}</td><td class="fp">{"status":"completed","result":{"message":"已摘要","data":{"brief":"# 第三章"}},"newLeaf":7}</td></tr>
-<tr><td><code>root/1:3#0</code></td><td>agents.create</td><td class="fp">{"ephemeral":true,"initial":null,"parent":null,"profileKey":"summarizer.chapter","tags":[]}</td><td class="fp">{"sessionId":4}</td></tr>
-<tr><td><code>root/1:3#1</code></td><td>agents.invoke</td><td class="fp">{"id":4,"input":{"text":"# 第四章\n宗门大比，一鸣惊人。"},"message":null,"mode":"prompt"}</td><td class="fp">{"status":"completed","result":{"message":"已摘要","data":{"brief":"# 第四章"}},"newLeaf":8}</td></tr>
-<tr><td><code>root/5:0#0</code></td><td>agents.create</td><td class="fp">{"ephemeral":true,"initial":null,"parent":null,"profileKey":"style.extractor","tags":[]}</td><td class="fp">{"sessionId":6}</td></tr>
-<tr><td><code>root/5:0#1</code></td><td>agents.invoke</td><td class="fp">{"id":6,"input":{"chapter":"ch2"},"message":null,"mode":"prompt"}</td><td class="fp">{"status":"completed","result":{"message":"文风提取完成","data":{"from":"ch2","style":"白描"}},"newLeaf":13}</td></tr>
-<tr><td><code>root/5:1#0</code></td><td>agents.create</td><td class="fp">{"ephemeral":true,"initial":null,"parent":null,"profileKey":"style.extractor","tags":[]}</td><td class="fp">{"sessionId":7}</td></tr>
-<tr><td><code>root/5:1#1</code></td><td>agents.invoke</td><td class="fp">{"id":7,"input":{"chapter":"ch4"},"message":null,"mode":"prompt"}</td><td class="fp">{"status":"completed","result":{"message":"文风提取完成","data":{"from":"ch4","style":"白描"}},"newLeaf":14}</td></tr></table>
+    <h2>④ RP 持久参与者：leader session 树跨 run 生长</h2>
+    <p class="note">两轮 rp-turn workflow + 轮间用户直聊，acquire 拿到的是同一个 leader session（复用✓）。
+        蓝色 = workflow 写入（回合模拟），黄色 = 用户直接对话——两种入口混排在同一棵主线上，历史对 leader 连续可见。session 是持久一等公民，workflow 只是借用它的无状态 conductor。</p>
+    <div class="graph"><pre class="mermaid">graph TD
+    e1["🧑 我推开酒馆的门"]:::workflow
+    e2["🤖 世界模拟，派发角色"]:::workflow
+    e7["🧑 [input]"]:::workflow
+    e8["🤖 结算：艾丽丝回应「我推开酒馆的门」…"]:::workflow
+    e9["🧑 聊：刚才的酒保是谁？"]:::direct
+    e10["🤖 （闲聊）酒保是老约翰，消息灵通"]:::direct
+    e11["🧑 我向吧台走去"]:::workflow
+    e12["🤖 世界模拟，派发角色"]:::workflow
+    e17["🧑 [input]"]:::workflow
+    e18["🤖 结算：艾丽丝回应「我向吧台走去」；… ◀ leaf"]:::workflow
+    e1 --> e2
+    e2 --> e7
+    e7 --> e8
+    e8 --> e9
+    e9 --> e10
+    e10 --> e11
+    e11 --> e12
+    e12 --> e17
+    e17 --> e18
+    classDef workflow fill:#16202e,stroke:#3d5a99,color:#a9c4ff
+    classDef direct fill:#2a2313,stroke:#8a6d1e,color:#ffd479</pre></div>
 </section>
 
 <script type="module">
     import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
     mermaid.initialize({ startOnLoad: true, theme: "neutral", flowchart: { curve: "basis" } });
+
+    const FRAMES = [{"ev":{"type":"status","runId":"run_1","status":"running"}},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root#0","path":"root","seq":0,"kind":"workspace.read","fingerprint":"{\"path\":\"manuscript/book.md\"}","result":"# 第一章\n主角出场，捡到神秘玉佩。\n---\n# 第二章\n玉佩引来追杀，主角初显身手。\n---\n# 第三章\n拜入宗门，结识挚友。\n---\n# 第四章\n宗门大比，一鸣惊人。"},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    style t0 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"progress","runId":"run_1","state":{"phase":"brief","total":4}}},{"ev":{"type":"log","runId":"run_1","message":"读取书稿，共 4 章，派发小模型并发摘要"}},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:0#0","path":"root/1:0","seq":0,"kind":"agents.create","fingerprint":"{\"ephemeral\":true,\"initial\":null,\"parent\":null,\"profileKey\":\"summarizer.chapter\",\"tags\":[]}","result":{"sessionId":1}},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t0 --> t1\n    style t1 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:1#0","path":"root/1:1","seq":0,"kind":"agents.create","fingerprint":"{\"ephemeral\":true,\"initial\":null,\"parent\":null,\"profileKey\":\"summarizer.chapter\",\"tags\":[]}","result":{"sessionId":2}},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t0 --> t1\n    t0 --> t2\n    style t2 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:1#1","path":"root/1:1","seq":1,"kind":"agents.invoke","fingerprint":"{\"id\":2,\"input\":{\"text\":\"# 第二章\\n玉佩引来追杀，主角初显身手。\"},\"message\":null,\"mode\":\"prompt\"}","result":{"status":"completed","result":{"message":"已摘要","data":{"brief":"# 第二章"}},"newLeaf":3}},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t2 --> t3\n    t0 --> t1\n    t0 --> t2\n    style t3 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"progress","runId":"run_1","state":{"phase":"brief","total":4,"done":1}}},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:2#0","path":"root/1:2","seq":0,"kind":"agents.create","fingerprint":"{\"ephemeral\":true,\"initial\":null,\"parent\":null,\"profileKey\":\"summarizer.chapter\",\"tags\":[]}","result":{"sessionId":3}},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t2 --> t3\n    t0 --> t1\n    t0 --> t2\n    t0 --> t4\n    style t4 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:2#1","path":"root/1:2","seq":1,"kind":"agents.invoke","fingerprint":"{\"id\":3,\"input\":{\"text\":\"# 第三章\\n拜入宗门，结识挚友。\"},\"message\":null,\"mode\":\"prompt\"}","result":{"status":"completed","result":{"message":"已摘要","data":{"brief":"# 第三章"}},"newLeaf":5}},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t2 --> t3\n    t4 --> t5\n    t0 --> t1\n    t0 --> t2\n    t0 --> t4\n    style t5 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"progress","runId":"run_1","state":{"phase":"brief","total":4,"done":2}}},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:3#0","path":"root/1:3","seq":0,"kind":"agents.create","fingerprint":"{\"ephemeral\":true,\"initial\":null,\"parent\":null,\"profileKey\":\"summarizer.chapter\",\"tags\":[]}","result":{"sessionId":4}},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t2 --> t3\n    t4 --> t5\n    t0 --> t1\n    t0 --> t2\n    t0 --> t4\n    t0 --> t6\n    style t6 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:0#1","path":"root/1:0","seq":1,"kind":"agents.invoke","fingerprint":"{\"id\":1,\"input\":{\"text\":\"# 第一章\\n主角出场，捡到神秘玉佩。\"},\"message\":null,\"mode\":\"prompt\"}","result":{"status":"completed","result":{"message":"已摘要","data":{"brief":"# 第一章"}},"newLeaf":7}},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t0 --> t1\n    t0 --> t2\n    t0 --> t4\n    t0 --> t6\n    style t7 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"progress","runId":"run_1","state":{"phase":"brief","total":4,"done":3}}},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:3#1","path":"root/1:3","seq":1,"kind":"agents.invoke","fingerprint":"{\"id\":4,\"input\":{\"text\":\"# 第四章\\n宗门大比，一鸣惊人。\"},\"message\":null,\"mode\":\"prompt\"}","result":{"status":"completed","result":{"message":"已摘要","data":{"brief":"# 第四章"}},"newLeaf":8}},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t0 --> t2\n    t0 --> t4\n    t0 --> t6\n    style t8 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"progress","runId":"run_1","state":{"phase":"brief","total":4,"done":4}}},{"ev":{"type":"progress","runId":"run_1","state":{"phase":"plot","total":4,"done":4}}},{"ev":{"type":"log","runId":"run_1","message":"摘要完成，高性能模型基于 brief 分析剧情（隔离文风干扰）"}},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root#2","path":"root","seq":2,"kind":"agents.create","fingerprint":"{\"ephemeral\":true,\"initial\":null,\"parent\":null,\"profileKey\":\"plot.analyst\",\"tags\":[]}","result":{"sessionId":5}},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t0 --> t9\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    style t9 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root#3","path":"root","seq":3,"kind":"agents.invoke","fingerprint":"{\"id\":5,\"input\":{\"briefs\":[{\"brief\":\"# 第一章\",\"chapter\":\"ch1\"},{\"brief\":\"# 第二章\",\"chapter\":\"ch2\"},{\"brief\":\"# 第三章\",\"chapter\":\"ch3\"},{\"brief\":\"# 第四章\",\"chapter\":\"ch4\"}]},\"message\":null,\"mode\":\"prompt\"}","result":{"status":"completed","result":{"message":"剧情分析完成","data":{"arcs":4,"theme":"逆袭"}},"newLeaf":10}},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t0 --> t9\n    t9 --> t10\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    style t10 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"ask_pending","runId":"run_1","ask":{"key":"root#4","path":"root","seq":4,"fingerprint":"{\"kind\":\"select\",\"multi\":true,\"options\":[{\"id\":\"ch1\",\"label\":\"ch1\"},{\"id\":\"ch2\",\"label\":\"ch2\"},{\"id\":\"ch3\",\"label\":\"ch3\"},{\"id\":\"ch4\",\"label\":\"ch4\"}],\"title\":\"选择要提取文风的章节\"}","spec":{"kind":"select","multi":true,"title":"选择要提取文风的章节","options":[{"id":"ch1","label":"ch1"},{"id":"ch2","label":"ch2"},{"id":"ch3","label":"ch3"},{"id":"ch4","label":"ch4"}]}}}},{"ev":{"type":"status","runId":"run_1","status":"waiting"}},{"ev":{"type":"status","runId":"run_1","status":"running"}},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root#0","path":"root","seq":0,"kind":"workspace.read","fingerprint":"{\"path\":\"manuscript/book.md\"}","result":"# 第一章\n主角出场，捡到神秘玉佩。\n---\n# 第二章\n玉佩引来追杀，主角初显身手。\n---\n# 第三章\n拜入宗门，结识挚友。\n---\n# 第四章\n宗门大比，一鸣惊人。"},"cached":true},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t0 --> t9\n    t9 --> t10\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    style t0 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"progress","runId":"run_1","state":{"phase":"brief","total":4}}},{"ev":{"type":"log","runId":"run_1","message":"读取书稿，共 4 章，派发小模型并发摘要"}},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:0#0","path":"root/1:0","seq":0,"kind":"agents.create","fingerprint":"{\"ephemeral\":true,\"initial\":null,\"parent\":null,\"profileKey\":\"summarizer.chapter\",\"tags\":[]}","result":{"sessionId":1}},"cached":true},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t0 --> t9\n    t9 --> t10\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    style t1 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:1#0","path":"root/1:1","seq":0,"kind":"agents.create","fingerprint":"{\"ephemeral\":true,\"initial\":null,\"parent\":null,\"profileKey\":\"summarizer.chapter\",\"tags\":[]}","result":{"sessionId":2}},"cached":true},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t0 --> t9\n    t9 --> t10\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    style t2 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:0#1","path":"root/1:0","seq":1,"kind":"agents.invoke","fingerprint":"{\"id\":1,\"input\":{\"text\":\"# 第一章\\n主角出场，捡到神秘玉佩。\"},\"message\":null,\"mode\":\"prompt\"}","result":{"status":"completed","result":{"message":"已摘要","data":{"brief":"# 第一章"}},"newLeaf":7}},"cached":true},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t0 --> t9\n    t9 --> t10\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    style t7 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:1#1","path":"root/1:1","seq":1,"kind":"agents.invoke","fingerprint":"{\"id\":2,\"input\":{\"text\":\"# 第二章\\n玉佩引来追杀，主角初显身手。\"},\"message\":null,\"mode\":\"prompt\"}","result":{"status":"completed","result":{"message":"已摘要","data":{"brief":"# 第二章"}},"newLeaf":3}},"cached":true},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t0 --> t9\n    t9 --> t10\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    style t3 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"progress","runId":"run_1","state":{"phase":"brief","total":4,"done":1}}},{"ev":{"type":"progress","runId":"run_1","state":{"phase":"brief","total":4,"done":2}}},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:2#0","path":"root/1:2","seq":0,"kind":"agents.create","fingerprint":"{\"ephemeral\":true,\"initial\":null,\"parent\":null,\"profileKey\":\"summarizer.chapter\",\"tags\":[]}","result":{"sessionId":3}},"cached":true},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t0 --> t9\n    t9 --> t10\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    style t4 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:3#0","path":"root/1:3","seq":0,"kind":"agents.create","fingerprint":"{\"ephemeral\":true,\"initial\":null,\"parent\":null,\"profileKey\":\"summarizer.chapter\",\"tags\":[]}","result":{"sessionId":4}},"cached":true},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t0 --> t9\n    t9 --> t10\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    style t6 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:2#1","path":"root/1:2","seq":1,"kind":"agents.invoke","fingerprint":"{\"id\":3,\"input\":{\"text\":\"# 第三章\\n拜入宗门，结识挚友。\"},\"message\":null,\"mode\":\"prompt\"}","result":{"status":"completed","result":{"message":"已摘要","data":{"brief":"# 第三章"}},"newLeaf":5}},"cached":true},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t0 --> t9\n    t9 --> t10\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    style t5 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/1:3#1","path":"root/1:3","seq":1,"kind":"agents.invoke","fingerprint":"{\"id\":4,\"input\":{\"text\":\"# 第四章\\n宗门大比，一鸣惊人。\"},\"message\":null,\"mode\":\"prompt\"}","result":{"status":"completed","result":{"message":"已摘要","data":{"brief":"# 第四章"}},"newLeaf":8}},"cached":true},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t0 --> t9\n    t9 --> t10\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    style t8 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"progress","runId":"run_1","state":{"phase":"brief","total":4,"done":3}}},{"ev":{"type":"progress","runId":"run_1","state":{"phase":"brief","total":4,"done":4}}},{"ev":{"type":"progress","runId":"run_1","state":{"phase":"plot","total":4,"done":4}}},{"ev":{"type":"log","runId":"run_1","message":"摘要完成，高性能模型基于 brief 分析剧情（隔离文风干扰）"}},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root#2","path":"root","seq":2,"kind":"agents.create","fingerprint":"{\"ephemeral\":true,\"initial\":null,\"parent\":null,\"profileKey\":\"plot.analyst\",\"tags\":[]}","result":{"sessionId":5}},"cached":true},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t0 --> t9\n    t9 --> t10\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    style t9 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root#3","path":"root","seq":3,"kind":"agents.invoke","fingerprint":"{\"id\":5,\"input\":{\"briefs\":[{\"brief\":\"# 第一章\",\"chapter\":\"ch1\"},{\"brief\":\"# 第二章\",\"chapter\":\"ch2\"},{\"brief\":\"# 第三章\",\"chapter\":\"ch3\"},{\"brief\":\"# 第四章\",\"chapter\":\"ch4\"}]},\"message\":null,\"mode\":\"prompt\"}","result":{"status":"completed","result":{"message":"剧情分析完成","data":{"arcs":4,"theme":"逆袭"}},"newLeaf":10}},"cached":true},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t0 --> t9\n    t9 --> t10\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    style t10 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root#4","path":"root","seq":4,"kind":"ask","fingerprint":"{\"kind\":\"select\",\"multi\":true,\"options\":[{\"id\":\"ch1\",\"label\":\"ch1\"},{\"id\":\"ch2\",\"label\":\"ch2\"},{\"id\":\"ch3\",\"label\":\"ch3\"},{\"id\":\"ch4\",\"label\":\"ch4\"}],\"title\":\"选择要提取文风的章节\"}","result":["ch2","ch4"]},"cached":true},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t11([\"ask @root#4\"])\n    t0 --> t9\n    t9 --> t10\n    t10 --> t11\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    style t11 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"progress","runId":"run_1","state":{"phase":"style","total":4,"done":4}}},{"ev":{"type":"log","runId":"run_1","message":"用户圈选 ch2、ch4，提取文风"}},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/5:0#0","path":"root/5:0","seq":0,"kind":"agents.create","fingerprint":"{\"ephemeral\":true,\"initial\":null,\"parent\":null,\"profileKey\":\"style.extractor\",\"tags\":[]}","result":{"sessionId":6}},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t11([\"ask @root#4\"])\n    t12[\"agents.create @root/5:0#0\"]\n    t0 --> t9\n    t9 --> t10\n    t10 --> t11\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    t11 --> t12\n    style t12 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/5:1#0","path":"root/5:1","seq":0,"kind":"agents.create","fingerprint":"{\"ephemeral\":true,\"initial\":null,\"parent\":null,\"profileKey\":\"style.extractor\",\"tags\":[]}","result":{"sessionId":7}},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t11([\"ask @root#4\"])\n    t12[\"agents.create @root/5:0#0\"]\n    t13[\"agents.create @root/5:1#0\"]\n    t0 --> t9\n    t9 --> t10\n    t10 --> t11\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    t11 --> t12\n    t11 --> t13\n    style t13 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/5:0#1","path":"root/5:0","seq":1,"kind":"agents.invoke","fingerprint":"{\"id\":6,\"input\":{\"chapter\":\"ch2\",\"mode\":\"白描\"},\"message\":null,\"mode\":\"prompt\"}","result":{"status":"completed","result":{"message":"文风提取完成","data":{"from":"ch2","style":"白描"}},"newLeaf":13}},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t11([\"ask @root#4\"])\n    t12[\"agents.create @root/5:0#0\"]\n    t13[\"agents.create @root/5:1#0\"]\n    t14[\"agents.invoke @root/5:0#1\"]\n    t0 --> t9\n    t9 --> t10\n    t10 --> t11\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t12 --> t14\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    t11 --> t12\n    t11 --> t13\n    style t14 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"activity","runId":"run_1","record":{"key":"root/5:1#1","path":"root/5:1","seq":1,"kind":"agents.invoke","fingerprint":"{\"id\":7,\"input\":{\"chapter\":\"ch4\",\"mode\":\"白描\"},\"message\":null,\"mode\":\"prompt\"}","result":{"status":"completed","result":{"message":"文风提取完成","data":{"from":"ch4","style":"白描"}},"newLeaf":14}},"cached":false},"graph":"graph TD\n    t0[\"workspace.read @root#0\"]\n    t1[\"agents.create @root/1:0#0\"]\n    t2[\"agents.create @root/1:1#0\"]\n    t3[\"agents.invoke @root/1:1#1\"]\n    t4[\"agents.create @root/1:2#0\"]\n    t5[\"agents.invoke @root/1:2#1\"]\n    t6[\"agents.create @root/1:3#0\"]\n    t7[\"agents.invoke @root/1:0#1\"]\n    t8[\"agents.invoke @root/1:3#1\"]\n    t9[\"agents.create @root#2\"]\n    t10[\"agents.invoke @root#3\"]\n    t11([\"ask @root#4\"])\n    t12[\"agents.create @root/5:0#0\"]\n    t13[\"agents.create @root/5:1#0\"]\n    t14[\"agents.invoke @root/5:0#1\"]\n    t15[\"agents.invoke @root/5:1#1\"]\n    t0 --> t9\n    t9 --> t10\n    t10 --> t11\n    t1 --> t7\n    t2 --> t3\n    t4 --> t5\n    t6 --> t8\n    t12 --> t14\n    t13 --> t15\n    t0 --> t1\n    t7 --> t9\n    t0 --> t2\n    t3 --> t9\n    t0 --> t4\n    t5 --> t9\n    t0 --> t6\n    t8 --> t9\n    t11 --> t12\n    t11 --> t13\n    style t15 fill:#f9e2af,stroke:#b45309,stroke-width:2px"},{"ev":{"type":"status","runId":"run_1","status":"completed"}}];
+    const ANSWER = ["ch2","ch4"];
+    let idx = 0, renderCount = 0, playing = false;
+    const el = (id) => document.getElementById(id);
+    const badge = el("live-badge"), logs = el("live-logs"), graphBox = el("live-graph");
+
+    async function drawGraph(code) {
+        const out = await mermaid.render("live" + (renderCount++), code);
+        graphBox.innerHTML = out.svg;
+    }
+    function addLog(text, cls) {
+        const li = document.createElement("li");
+        li.textContent = text;
+        if (cls) li.className = cls;
+        logs.prepend(li);
+    }
+    function setBadge(status, text) {
+        badge.className = "badge " + status;
+        badge.textContent = text;
+    }
+
+    async function step() {
+        if (!playing || idx >= FRAMES.length) { playing = false; return; }
+        const frame = FRAMES[idx++];
+        const ev = frame.ev;
+        let delay = 300;
+        if (ev.type === "status") {
+            const names = { running: "运行中", waiting: "⏸ 等待应答", completed: "✅ 完成", failed: "失败" };
+            setBadge(ev.status, names[ev.status] || ev.status);
+            delay = 200;
+        } else if (ev.type === "progress") {
+            el("live-progress").textContent = "阶段: " + (ev.state.phase || "-") +
+                (ev.state.total ? "（" + (ev.state.done || 0) + "/" + ev.state.total + "）" : "");
+            delay = 150;
+        } else if (ev.type === "log") {
+            addLog("📋 " + ev.message);
+            delay = 350;
+        } else if (ev.type === "activity") {
+            if (frame.graph) await drawGraph(frame.graph);
+            addLog((ev.cached ? "⚡ 缓存命中 " : "● ") + ev.record.kind + " @" + ev.record.key, ev.cached ? "hit" : "act");
+            delay = ev.cached ? 90 : 520;
+        } else if (ev.type === "ask_pending") {
+            el("ask-title").textContent = "⏸ " + ev.ask.spec.title;
+            el("ask-opts").innerHTML = (ev.ask.spec.options || []).map((o) => '<span class="chip">' + o.label + "</span>").join(" ");
+            el("ask-answer-btn").textContent = "应答：" + JSON.stringify(ANSWER) + "（resume）";
+            el("ask-box").style.display = "block";
+            playing = false; // 暂停等人
+            return;
+        }
+        setTimeout(step, delay);
+    }
+
+    el("play-btn").addEventListener("click", () => {
+        if (playing) return;
+        idx = 0; logs.innerHTML = ""; el("ask-box").style.display = "none";
+        playing = true;
+        el("play-btn").textContent = "↺ 重新运行";
+        step();
+    });
+    el("ask-answer-btn").addEventListener("click", () => {
+        el("ask-box").style.display = "none";
+        addLog("🧑 用户应答: " + JSON.stringify(ANSWER));
+        playing = true;
+        step();
+    });
 </script>
 </body>
 </html>

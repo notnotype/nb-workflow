@@ -76,12 +76,17 @@ class Runtime {
         const dirty = this.exec.dirtyFrom.get(path);
         const cached = this.run.journal.get(key);
         if (cached && (dirty === undefined || seq < dirty)) {
-            if (cached.kind === kind && cached.fingerprint === fp) return cached.result as T;
+            if (cached.kind === kind && cached.fingerprint === fp) {
+                this.env.onEvent?.({ type: "activity", runId: this.run.runId, record: cached, cached: true });
+                return cached.result as T;
+            }
             this.exec.dirtyFrom.set(path, seq);
             this.run.journal.delete(key);
         }
         const result = await fn();
-        this.run.journal.set(key, { key, path, seq, kind, fingerprint: fp, result });
+        const record: ActivityRecord = { key, path, seq, kind, fingerprint: fp, result };
+        this.run.journal.set(key, record);
+        this.env.onEvent?.({ type: "activity", runId: this.run.runId, record, cached: false });
         return result;
     }
 
@@ -92,8 +97,13 @@ class Runtime {
         const key = `${path}#${seq}`;
         const fp = fingerprint(spec as unknown as JsonValue);
         const cached = this.run.journal.get(key);
-        if (cached && cached.kind === "ask" && cached.fingerprint === fp) return cached.result;
-        this.run.pendingAsks.push({ key, path, seq, fingerprint: fp, spec });
+        if (cached && cached.kind === "ask" && cached.fingerprint === fp) {
+            this.env.onEvent?.({ type: "activity", runId: this.run.runId, record: cached, cached: true });
+            return cached.result;
+        }
+        const pending: PendingAsk = { key, path, seq, fingerprint: fp, spec };
+        this.run.pendingAsks.push(pending);
+        this.env.onEvent?.({ type: "ask_pending", runId: this.run.runId, ask: pending });
         throw new SuspendSignal();
     }
 
@@ -183,9 +193,22 @@ class Handle implements SessionHandle {
     }
 }
 
+/**
+ * 运行时事件流：接入 NeuroBook 后对应 session-event-hub / SSE 公开投影的前置形态。
+ * activity 事件带 cached 标记：replay 命中 = true（前端可用快闪表现"缓存命中"）。
+ */
+export type WorkflowEvent =
+    | { type: "status"; runId: string; status: RunStatus }
+    | { type: "activity"; runId: string; record: ActivityRecord; cached: boolean }
+    | { type: "ask_pending"; runId: string; ask: PendingAsk }
+    | { type: "log"; runId: string; message: string }
+    | { type: "progress"; runId: string; state: ProgressState };
+
 export type RunEnv = {
     /** wf.workspace.read 的数据源 */
     files?: Record<string, string>;
+    /** 运行时事件订阅（SSE 前置形态） */
+    onEvent?: (event: WorkflowEvent) => void;
 };
 
 /** 组装 V1 收敛面的 wf 根对象 */
@@ -243,8 +266,14 @@ function createWf(rt: Runtime, args: JsonValue): Wf {
             return await collectBranches(thunks, opts.concurrency ?? 4);
         },
         ask: (spec) => rt.askActivity(spec),
-        log: (message) => { rt.run.logs.push(message); },
-        progress: (state) => { rt.run.progress = { ...rt.run.progress, ...state }; },
+        log: (message) => {
+            rt.run.logs.push(message);
+            rt.env.onEvent?.({ type: "log", runId: rt.run.runId, message });
+        },
+        progress: (state) => {
+            rt.run.progress = { ...rt.run.progress, ...state };
+            rt.env.onEvent?.({ type: "progress", runId: rt.run.runId, state: rt.run.progress });
+        },
         workspace: {
             read: (path) => rt.activity("workspace.read", { path }, async () => {
                 const content = rt.env.files?.[path];
@@ -333,6 +362,7 @@ export class WorkflowRunner {
 
     private async execute(run: RunRecord): Promise<RunView> {
         run.status = "running";
+        this.env.onEvent?.({ type: "status", runId: run.runId, status: "running" });
         run.pendingAsks = [];
         run.logs = [];
         run.progress = null;
@@ -356,6 +386,7 @@ export class WorkflowRunner {
         } finally {
             // 结束或挂起都释放锁：挂起可能等很久，不该锁死用户对话
             this.store.releaseAll(run.runId);
+            this.env.onEvent?.({ type: "status", runId: run.runId, status: run.status });
         }
         return toView(run);
     }
