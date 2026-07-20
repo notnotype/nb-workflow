@@ -213,7 +213,7 @@ function createWf(rt: Runtime, args: JsonValue): Wf {
                     { profileKey, initial: opts.initial ?? null, tags: opts.tags ?? [], parent: opts.parent?.id ?? null, ephemeral: opts.ephemeral ?? false },
                     async () => {
                         const meta = await rt.ports.sessions.createSession({
-                            profileKey, kind: "chat", tags: opts.tags ?? [], parentSessionId: opts.parent?.id,
+                            profileKey, kind: "chat", tags: opts.tags ?? [], parentSessionId: opts.parent?.id, initial: opts.initial,
                         });
                         return { sessionId: meta.sessionId };
                     }) as { sessionId: SessionId };

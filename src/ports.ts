@@ -22,6 +22,8 @@ export interface SessionPort {
         profileKey: string;
         kind: SessionMeta["kind"];
         tags: string[];
+        /** profile 初始输入（真实 profile 需要；内存实现忽略） */
+        initial?: JsonValue;
         parentSessionId?: SessionId;
         title?: string;
     }): Promise<SessionMeta>;
