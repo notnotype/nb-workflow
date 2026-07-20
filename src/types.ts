@@ -97,7 +97,8 @@ export type WorkflowDefinition<TArgs = JsonValue, TResult = JsonValue> = {
     run: (wf: Wf, args: TArgs) => Promise<TResult>;
 };
 
-export type ProgressState = { phase?: string; done?: number; total?: number };
+/** node：声明状态机的当前状态指针（声明图由宿主/场景侧提供，progress({node}) 只移指针） */
+export type ProgressState = { phase?: string; done?: number; total?: number; node?: string };
 
 /** 宿主注入的 wf 根对象（V1 收敛面） */
 export type Wf = {
