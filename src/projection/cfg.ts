@@ -1,4 +1,10 @@
-import ts from "typescript";
+import {createRequire} from "node:module";
+import type * as TypeScript from "typescript";
+
+// typescript 是 ~9MB 的单文件 CJS 包：必须用运行时 require 而非 ESM import，
+// 否则宿主打包器（如 Nitro dev 的 rollup）会把它拉进模块图解析，内存暴涨直至 OOM。
+const require = createRequire(import.meta.url);
+const ts = require("typescript") as typeof TypeScript;
 
 export type CfgNode = {
     id: number;
@@ -42,9 +48,9 @@ export function extractCfg(source: string): CfgGraph {
     const sf = ts.createSourceFile("workflow.ts", source, ts.ScriptTarget.ES2022, true);
     const nodes: CfgNode[] = [];
 
-    const controlOf = (node: ts.Node): string[] => {
+    const controlOf = (node: TypeScript.Node): string[] => {
         const out: string[] = [];
-        let cursor: ts.Node | undefined = node.parent;
+        let cursor: TypeScript.Node | undefined = node.parent;
         while (cursor) {
             if (ts.isIfStatement(cursor)) out.push("if");
             else if (ts.isForStatement(cursor) || ts.isForOfStatement(cursor)) out.push("for");
@@ -61,7 +67,7 @@ export function extractCfg(source: string): CfgGraph {
         return out.reverse();
     };
 
-    const visit = (node: ts.Node): void => {
+    const visit = (node: TypeScript.Node): void => {
         if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
             const receiver = node.expression.expression.getText(sf);
             const name = orchCallName(receiver, node.expression.name.text);
