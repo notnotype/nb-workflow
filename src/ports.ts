@@ -26,6 +26,8 @@ export interface SessionPort {
         initial?: JsonValue;
         parentSessionId?: SessionId;
         title?: string;
+        /** 指定该 session 的模型（"provider/model" key）；为空用 profile 默认。宿主实现负责校验与落位 */
+        model?: string;
     }): Promise<SessionMeta>;
     meta(sessionId: SessionId): Promise<SessionMeta>;
     /** 持久参与者寻址：按 (profileKey, tag) 找未归档 session；没有返回 null */
@@ -53,6 +55,8 @@ export type AgentInvokeOutcome = {
     data: JsonValue | null;
     /** invoke 后 session 的新游标：completed = assistant entry；waiting = user entry（等待补充输入） */
     newLeaf: EntryId | null;
+    /** 本轮 token 用量（真实模型才有；mock/未知为空）。随 journal 持久，宿主据此汇总 run 级用量 */
+    usage?: { inputTokens: number; outputTokens: number } | null;
 };
 
 /**

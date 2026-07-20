@@ -121,8 +121,8 @@ export type Wf = {
     agents: {
         /** 查 profile 信息（journaled） */
         profile(profileKey: string): Promise<JsonValue>;
-        /** 新建 session；ephemeral 的在 run 成功后归档 */
-        create(profileKey: string, opts?: { initial?: JsonValue; tags?: string[]; parent?: SessionHandle; ephemeral?: boolean }): Promise<SessionHandle>;
+        /** 新建 session；ephemeral 的在 run 成功后归档；model 指定该 session 用的模型（缺省用 run 级默认，再缺省用 profile 默认） */
+        create(profileKey: string, opts?: { initial?: JsonValue; tags?: string[]; parent?: SessionHandle; ephemeral?: boolean; model?: string }): Promise<SessionHandle>;
         /** 持久参与者：按 (profileKey, tag) 查未归档 session，找到复用，没有才建 */
         acquire(opts: { profileKey: string; tag: string; parent?: SessionHandle }): Promise<SessionHandle>;
         /** wf.sessions.open(id).invoke(...) 的糖 */

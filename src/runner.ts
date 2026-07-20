@@ -22,6 +22,10 @@ type RunRecord = {
     def: WorkflowDefinition;
     args: JsonValue;
     callerSessionId: SessionId | null;
+    /** run 级默认模型：agents.create 未显式指定 model 时使用（"provider/model" key） */
+    defaultModel: string | null;
+    /** run 级 workspace 端口：覆盖 RunEnv.workspace（面 B 场景按发起方 workspace 注入） */
+    workspace: WorkspacePort | null;
     status: RunStatus;
     result?: JsonValue;
     error?: string;
@@ -211,11 +215,12 @@ function createWf(rt: Runtime, args: JsonValue): Wf {
         agents: {
             profile: (profileKey) => rt.activity("agents.profile", { profileKey }, async () => rt.ports.agents.profileInfo(profileKey)),
             create: async (profileKey, opts = {}) => {
+                const model = opts.model ?? rt.run.defaultModel ?? null;
                 const out = await rt.activity("agents.create",
-                    { profileKey, initial: opts.initial ?? null, tags: opts.tags ?? [], parent: opts.parent?.id ?? null, ephemeral: opts.ephemeral ?? false },
+                    { profileKey, initial: opts.initial ?? null, tags: opts.tags ?? [], parent: opts.parent?.id ?? null, ephemeral: opts.ephemeral ?? false, model },
                     async () => {
                         const meta = await rt.ports.sessions.createSession({
-                            profileKey, kind: "chat", tags: opts.tags ?? [], parentSessionId: opts.parent?.id, initial: opts.initial,
+                            profileKey, kind: "chat", tags: opts.tags ?? [], parentSessionId: opts.parent?.id, initial: opts.initial, model: model ?? undefined,
                         });
                         return { sessionId: meta.sessionId };
                     }) as { sessionId: SessionId };
@@ -274,8 +279,9 @@ function createWf(rt: Runtime, args: JsonValue): Wf {
         })(),
         workspace: {
             read: (path) => rt.activity("workspace.read", { path }, async () => {
-                if (!rt.env.workspace) throw new Error("本环境未提供 workspace 端口");
-                return await rt.env.workspace.read(path);
+                const workspace = rt.run.workspace ?? rt.env.workspace;
+                if (!workspace) throw new Error("本环境未提供 workspace 端口");
+                return await workspace.read(path);
             }),
         },
         caller: async () => {
@@ -326,12 +332,15 @@ export class WorkflowRunner {
      * 非阻塞启动：同步分配 runId 立即返回，执行在后台进行。
      * done 不会 reject（失败也归约为 status:"failed" 的 RunView）。
      */
-    begin(def: WorkflowDefinition<never, never> | WorkflowDefinition, args: JsonValue, opts?: { callerSessionId?: SessionId }): { runId: string; done: Promise<RunView> } {
+    /** begin/start 的启动选项（面 B/工具触发时由宿主注入） */
+    begin(def: WorkflowDefinition<never, never> | WorkflowDefinition, args: JsonValue, opts?: { callerSessionId?: SessionId; defaultModel?: string; workspace?: WorkspacePort }): { runId: string; done: Promise<RunView> } {
         const run: RunRecord = {
             runId: `run_${this.nextRunId++}`,
             def: def as WorkflowDefinition,
             args,
             callerSessionId: opts?.callerSessionId ?? null,
+            defaultModel: opts?.defaultModel ?? null,
+            workspace: opts?.workspace ?? null,
             status: "running",
             journal: new Map(),
             pendingAsks: [],
@@ -343,7 +352,7 @@ export class WorkflowRunner {
     }
 
     /** 面 A（无 caller）/ 面 B（callerSessionId = 发起 agent 的 session） */
-    async start(def: WorkflowDefinition<never, never> | WorkflowDefinition, args: JsonValue, opts?: { callerSessionId?: SessionId }): Promise<RunView> {
+    async start(def: WorkflowDefinition<never, never> | WorkflowDefinition, args: JsonValue, opts?: { callerSessionId?: SessionId; defaultModel?: string; workspace?: WorkspacePort }): Promise<RunView> {
         return await this.begin(def, args, opts).done;
     }
 
