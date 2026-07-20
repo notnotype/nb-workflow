@@ -302,11 +302,16 @@ async function collectBranches<T>(thunks: (() => Promise<T>)[], concurrency: num
 export class WorkflowRunner {
     private runs = new Map<string, RunRecord>();
     private nextRunId = 1;
+    /** 正在执行中的 run：防止同一 run 并发 execute（begin 后 rerun / 重复 resume） */
+    private inFlight = new Set<string>();
 
     constructor(private ports: WorkflowPorts, private env: RunEnv = {}) {}
 
-    /** 面 A（无 caller）/ 面 B（callerSessionId = 发起 agent 的 session） */
-    async start(def: WorkflowDefinition<never, never> | WorkflowDefinition, args: JsonValue, opts?: { callerSessionId?: SessionId }): Promise<RunView> {
+    /**
+     * 非阻塞启动：同步分配 runId 立即返回，执行在后台进行。
+     * done 不会 reject（失败也归约为 status:"failed" 的 RunView）。
+     */
+    begin(def: WorkflowDefinition<never, never> | WorkflowDefinition, args: JsonValue, opts?: { callerSessionId?: SessionId }): { runId: string; done: Promise<RunView> } {
         const run: RunRecord = {
             runId: `run_${this.nextRunId++}`,
             def: def as WorkflowDefinition,
@@ -319,7 +324,12 @@ export class WorkflowRunner {
             progress: null,
         };
         this.runs.set(run.runId, run);
-        return await this.execute(run);
+        return { runId: run.runId, done: this.execute(run) };
+    }
+
+    /** 面 A（无 caller）/ 面 B（callerSessionId = 发起 agent 的 session） */
+    async start(def: WorkflowDefinition<never, never> | WorkflowDefinition, args: JsonValue, opts?: { callerSessionId?: SessionId }): Promise<RunView> {
+        return await this.begin(def, args, opts).done;
     }
 
     /** 应答 pending ask 后重放续跑；answers 按 ask key 对号 */
@@ -349,6 +359,8 @@ export class WorkflowRunner {
     }
 
     private async execute(run: RunRecord): Promise<RunView> {
+        if (this.inFlight.has(run.runId)) throw new Error(`run ${run.runId} 正在执行中`);
+        this.inFlight.add(run.runId);
         run.status = "running";
         this.env.onEvent?.({ type: "status", runId: run.runId, status: "running" });
         run.pendingAsks = [];
@@ -373,6 +385,7 @@ export class WorkflowRunner {
             }
         } finally {
             // 结束或挂起都释放锁：挂起可能等很久，不该锁死用户对话
+            this.inFlight.delete(run.runId);
             await this.ports.sessions.releaseAll(run.runId);
             this.env.onEvent?.({ type: "status", runId: run.runId, status: run.status });
         }
