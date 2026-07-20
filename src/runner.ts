@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { fingerprint } from "./fingerprint";
 import type { AgentInvokeOutcome, WorkflowPorts, WorkspacePort } from "./ports";
 import type {
-    ActivityRecord, AskSpec, EntryId, InvokeOptions, InvokeResult, JsonValue, PendingAsk,
+    ActivityRecord, AskSpec, ChartOp, EntryId, InvokeOptions, InvokeResult, JsonValue, PendingAsk,
     ProgressState, RunStatus, RunView, SessionHandle, SessionId, Wf, WorkflowDefinition,
 } from "./types";
 
@@ -186,7 +186,9 @@ export type WorkflowEvent =
     | { type: "activity"; runId: string; record: ActivityRecord; cached: boolean }
     | { type: "ask_pending"; runId: string; ask: PendingAsk }
     | { type: "log"; runId: string; message: string }
-    | { type: "progress"; runId: string; state: ProgressState };
+    | { type: "progress"; runId: string; state: ProgressState }
+    /** 状态图观测（wf.chart）：声明与 token 移动，前端据此渲染并发状态图 */
+    | { type: "chart"; runId: string; op: ChartOp };
 
 export type RunEnv = {
     /** wf.workspace.read 的数据源；未提供时 read 抛错 */
@@ -258,6 +260,18 @@ function createWf(rt: Runtime, args: JsonValue): Wf {
             rt.run.progress = { ...rt.run.progress, ...state };
             rt.env.onEvent?.({ type: "progress", runId: rt.run.runId, state: rt.run.progress });
         },
+        chart: (() => {
+            const emit = (op: ChartOp) => rt.env.onEvent?.({ type: "chart", runId: rt.run.runId, op });
+            return {
+                node: (key: string, title?: string) => emit({ op: "node", key, title }),
+                edge: (from: string, to: string, label?: string) => emit({ op: "edge", from, to, label }),
+                enter: (key: string, opts: { token?: string; sessionId?: SessionId } = {}) =>
+                    emit({ op: "enter", key, token: opts.token ?? "main", sessionId: opts.sessionId }),
+                leave: (key: string, opts: { token?: string } = {}) => emit({ op: "leave", key, token: opts.token ?? "main" }),
+                move: (from: string, to: string, opts: { token?: string; sessionId?: SessionId; label?: string } = {}) =>
+                    emit({ op: "move", from, to, token: opts.token ?? "main", sessionId: opts.sessionId, label: opts.label }),
+            };
+        })(),
         workspace: {
             read: (path) => rt.activity("workspace.read", { path }, async () => {
                 if (!rt.env.workspace) throw new Error("本环境未提供 workspace 端口");

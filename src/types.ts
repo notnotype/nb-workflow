@@ -97,8 +97,23 @@ export type WorkflowDefinition<TArgs = JsonValue, TResult = JsonValue> = {
     run: (wf: Wf, args: TArgs) => Promise<TResult>;
 };
 
-/** node：声明状态机的当前状态指针（声明图由宿主/场景侧提供，progress({node}) 只移指针） */
-export type ProgressState = { phase?: string; done?: number; total?: number; node?: string };
+export type ProgressState = { phase?: string; done?: number; total?: number };
+
+/**
+ * 状态图操作（`wf.chart` 发出的观测事件载荷，非 journaled）。
+ * 设计要点：
+ * - node/edge 是**增量声明**：可以运行前由宿主预置（声明骨架），也可以代码运行中随时补（动态分支/每项子状态），同一套 API。
+ * - enter/leave/move 以 **token** 表达并发：一个 token = 一条并行执行线（默认 "main"；map 分支用 item id 当 token），
+ *   多个 token 同时停在不同/相同节点 = 并发在图上可见。
+ * - token 可附 sessionId：展示「哪个 agent session 正在这个状态上干活」。
+ */
+export type ChartOp =
+    | { op: "node"; key: string; title?: string }
+    | { op: "edge"; from: string; to: string; label?: string }
+    | { op: "enter"; key: string; token: string; sessionId?: SessionId }
+    | { op: "leave"; key: string; token: string }
+    /** leave(from)+enter(to)，并确保 from→to 边存在 */
+    | { op: "move"; from: string; to: string; token: string; sessionId?: SessionId; label?: string };
 
 /** 宿主注入的 wf 根对象（V1 收敛面） */
 export type Wf = {
@@ -123,6 +138,14 @@ export type Wf = {
     ask(spec: AskSpec): Promise<JsonValue>;
     log(message: string): void;
     progress(state: ProgressState): void;
+    /** 观测：状态图（声明与指针分离；见 ChartOp 注释）。纯观测不进 journal，replay 时随代码重跑自然重建 */
+    chart: {
+        node(key: string, title?: string): void;
+        edge(from: string, to: string, label?: string): void;
+        enter(key: string, opts?: { token?: string; sessionId?: SessionId }): void;
+        leave(key: string, opts?: { token?: string }): void;
+        move(from: string, to: string, opts?: { token?: string; sessionId?: SessionId; label?: string }): void;
+    };
     workspace: {
         /** 只读读取（journaled）；spike 从 env.files 取 */
         read(path: string): Promise<string>;
