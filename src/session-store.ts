@@ -1,12 +1,5 @@
-import type { EntryId, SessionEntry, SessionId, SessionMeta } from "./types";
-
-/** session 被其他持有者占用（workflow run 或用户直接对话） */
-export class SessionBusyError extends Error {
-    constructor(sessionId: SessionId, holder: string) {
-        super(`session ${sessionId} 正被 ${holder} 占用`);
-        this.name = "SessionBusyError";
-    }
-}
+import type { EntryId, JsonValue, SessionEntry, SessionId, SessionMeta } from "./types";
+import { SessionBusyError, type SessionPort, type WorkspacePort } from "./ports";
 
 type SessionRecord = {
     meta: SessionMeta;
@@ -15,56 +8,66 @@ type SessionRecord = {
 };
 
 /**
- * 内存版 append-only session 树存储。
- * 对应 NeuroBook 的 JsonlSessionRepository（forkSession/moveLeaf 已有），spike 只建模验证 API 所需子集。
+ * 内存版 SessionPort 实现（测试 / demo 用）。
+ * 对应 NeuroBook 的 JsonlSessionRepository 适配器，语义合同见 ports.ts。
  */
-export class SessionStore {
+export class MemorySessionStore implements SessionPort {
     private sessions = new Map<SessionId, SessionRecord>();
     private nextSessionId = 1;
     private nextEntryId = 1;
     /** 排它锁：sessionId -> 持有者标识（runId 或 "direct"） */
     private locks = new Map<SessionId, string>();
 
-    createSession(meta: Omit<SessionMeta, "sessionId" | "archived">): SessionMeta {
-        const full: SessionMeta = { ...meta, sessionId: this.nextSessionId++, archived: false };
+    async createSession(init: { profileKey: string; kind: SessionMeta["kind"]; tags: string[]; parentSessionId?: SessionId; title?: string }): Promise<SessionMeta> {
+        const full: SessionMeta = {
+            sessionId: this.nextSessionId++,
+            profileKey: init.profileKey,
+            kind: init.kind,
+            tags: init.tags,
+            parentSessionId: init.parentSessionId,
+            title: init.title,
+            archived: false,
+        };
         this.sessions.set(full.sessionId, { meta: full, entries: new Map(), activeLeaf: null });
         return full;
     }
 
-    meta(sessionId: SessionId): SessionMeta {
+    async meta(sessionId: SessionId): Promise<SessionMeta> {
         return this.record(sessionId).meta;
     }
 
-    /** 持久参与者寻址：按 (profileKey, tag) 找未归档 session */
-    findByTag(profileKey: string, tag: string): SessionMeta | null {
+    async findByTag(profileKey: string, tag: string): Promise<SessionMeta | null> {
         for (const rec of this.sessions.values()) {
             if (!rec.meta.archived && rec.meta.profileKey === profileKey && rec.meta.tags.includes(tag)) return rec.meta;
         }
         return null;
     }
 
-    /** 唯一的生长原语：在 parent 后追加；parent 非端点时自然开叉 */
-    append(sessionId: SessionId, parentId: EntryId | null, entry: Omit<SessionEntry, "id" | "parentId">): SessionEntry {
+    /** 唯一的生长原语：落在显式 parent 上（parent 非端点时自然开叉），并自动移 active leaf */
+    async append(sessionId: SessionId, parentId: EntryId | null, entry: {
+        role: "user" | "assistant"; message?: string; input?: JsonValue; data?: JsonValue; origin: "workflow" | "direct";
+    }): Promise<EntryId> {
         const rec = this.record(sessionId);
         if (parentId !== null && !rec.entries.has(parentId)) throw new Error(`entry ${parentId} 不存在`);
-        const full: SessionEntry = { ...entry, id: this.nextEntryId++, parentId };
+        const full: SessionEntry = { ...entry, type: "message", id: `e${this.nextEntryId++}`, parentId };
         rec.entries.set(full.id, full);
-        return full;
+        rec.activeLeaf = full.id;
+        return full.id;
     }
 
-    activeLeaf(sessionId: SessionId): EntryId | null {
+    async activeLeaf(sessionId: SessionId): Promise<EntryId | null> {
         return this.record(sessionId).activeLeaf;
     }
 
     /** 唯一的游标原语（= moveLeaf）：rewind / 切分支 / 恢复现场都是它 */
-    setActiveLeaf(sessionId: SessionId, entryId: EntryId | null): void {
+    async setActiveLeaf(sessionId: SessionId, entryId: EntryId): Promise<void> {
         const rec = this.record(sessionId);
-        if (entryId !== null && !rec.entries.has(entryId)) throw new Error(`entry ${entryId} 不存在`);
+        if (!rec.entries.has(entryId)) throw new Error(`entry ${entryId} 不存在`);
         rec.activeLeaf = entryId;
     }
 
     /** 从某 leaf 向根回溯的线性视图（时间正序） */
-    transcript(sessionId: SessionId, fromLeaf: EntryId | null): SessionEntry[] {
+    async transcript(sessionId: SessionId, fromLeaf: EntryId | null): Promise<SessionEntry[]> {
         const rec = this.record(sessionId);
         const out: SessionEntry[] = [];
         let cursor = fromLeaf;
@@ -77,23 +80,23 @@ export class SessionStore {
         return out.reverse();
     }
 
-    /** 全树 entry（投影 / 测试断言旁支存在性用） */
+    /** 全树 entry（投影 / 测试断言旁支存在性用；内存实现独有，不在端口上） */
     allEntries(sessionId: SessionId): SessionEntry[] {
         return [...this.record(sessionId).entries.values()];
     }
 
-    archive(sessionId: SessionId): void {
+    async archive(sessionId: SessionId): Promise<void> {
         this.record(sessionId).meta.archived = true;
     }
 
     /** 尝试加锁；已被其他持有者占用则抛 SessionBusyError；同持有者重入幂等 */
-    lock(sessionId: SessionId, holder: string): void {
+    async lock(sessionId: SessionId, holder: string): Promise<void> {
         const current = this.locks.get(sessionId);
         if (current !== undefined && current !== holder) throw new SessionBusyError(sessionId, current);
         this.locks.set(sessionId, holder);
     }
 
-    releaseAll(holder: string): void {
+    async releaseAll(holder: string): Promise<void> {
         for (const [sessionId, current] of this.locks) {
             if (current === holder) this.locks.delete(sessionId);
         }
@@ -104,4 +107,15 @@ export class SessionStore {
         if (!rec) throw new Error(`session ${sessionId} 不存在`);
         return rec;
     }
+}
+
+/** 内存版 workspace 只读端口：从固定文件表取内容 */
+export function createMemoryWorkspace(files: Record<string, string>): WorkspacePort {
+    return {
+        async read(path: string): Promise<string> {
+            const content = files[path];
+            if (content === undefined) throw new Error(`workspace 文件不存在: ${path}`);
+            return content;
+        },
+    };
 }

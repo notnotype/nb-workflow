@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { fingerprint } from "./fingerprint";
-import { SessionStore } from "./session-store";
-import { AgentRegistry } from "./agents";
+import type { AgentInvokeOutcome, WorkflowPorts, WorkspacePort } from "./ports";
 import type {
     ActivityRecord, AskSpec, EntryId, InvokeOptions, InvokeResult, JsonValue, PendingAsk,
     ProgressState, RunStatus, RunView, SessionHandle, SessionId, Wf, WorkflowDefinition,
@@ -54,8 +53,7 @@ class Runtime {
     constructor(
         readonly run: RunRecord,
         readonly exec: ExecutionState,
-        readonly store: SessionStore,
-        readonly agents: AgentRegistry,
+        readonly ports: WorkflowPorts,
         readonly env: RunEnv,
     ) {}
 
@@ -109,8 +107,8 @@ class Runtime {
     }
 
     /** run 持锁到结束/挂起；重放命中的 open/acquire/create 也要重新加锁（锁是运行时态，不进 journal） */
-    lock(sessionId: SessionId): void {
-        this.store.lock(sessionId, this.run.runId);
+    async lock(sessionId: SessionId): Promise<void> {
+        await this.ports.sessions.lock(sessionId, this.run.runId);
     }
 }
 
@@ -131,14 +129,14 @@ class Handle implements SessionHandle {
 
     async transcript(opts?: { tail?: number }): Promise<import("./types").SessionEntry[]> {
         const full = await this.rt.activity("sessions.transcript", { id: this.id, cursor: this.cursor, tail: opts?.tail ?? null },
-            async () => this.rt.store.transcript(this.id, this.cursor) as unknown as JsonValue);
+            async () => await this.rt.ports.sessions.transcript(this.id, this.cursor) as unknown as JsonValue);
         const list = full as unknown as import("./types").SessionEntry[];
         return opts?.tail ? list.slice(-opts.tail) : list;
     }
 
     async checkout(entryId: EntryId): Promise<void> {
         await this.rt.activity("sessions.checkout", { id: this.id, entryId }, async () => {
-            this.rt.store.setActiveLeaf(this.id, entryId);
+            await this.rt.ports.sessions.setActiveLeaf(this.id, entryId);
             return null;
         });
         this.cursor = entryId;
@@ -148,13 +146,9 @@ class Handle implements SessionHandle {
         const parent = this.cursor;
         const id = await this.rt.activity("sessions.append",
             { id: this.id, role: msg.role, message: msg.message ?? null, input: msg.input ?? null },
-            async () => {
-                const entry = this.rt.store.append(this.id, parent, {
-                    type: "message", role: msg.role, message: msg.message, input: msg.input, origin: "workflow",
-                });
-                this.rt.store.setActiveLeaf(this.id, entry.id);
-                return entry.id;
-            });
+            async () => await this.rt.ports.sessions.append(this.id, parent, {
+                role: msg.role, message: msg.message, input: msg.input, origin: "workflow",
+            }));
         this.cursor = id;
         return id;
     }
@@ -163,23 +157,10 @@ class Handle implements SessionHandle {
         const parent = this.cursor;
         const out = await this.rt.activity("agents.invoke",
             { id: this.id, mode: opts.mode ?? "prompt", message: opts.message ?? null, input: opts.input ?? null },
-            async () => {
-                const user = this.rt.store.append(this.id, parent, {
-                    type: "message", role: "user", message: opts.message, input: opts.input, origin: "workflow",
-                });
-                const resp = await this.rt.agents.respond(this.rt.store, this.id, user.id, opts);
-                if (resp.waiting) {
-                    this.rt.store.setActiveLeaf(this.id, user.id);
-                    return { status: "waiting", result: { message: resp.message, data: null }, newLeaf: user.id } as unknown as JsonValue;
-                }
-                const asst = this.rt.store.append(this.id, user.id, {
-                    type: "message", role: "assistant", message: resp.message, data: resp.data, origin: "workflow",
-                });
-                this.rt.store.setActiveLeaf(this.id, asst.id);
-                return { status: "completed", result: { message: resp.message, data: resp.data ?? null }, newLeaf: asst.id } as unknown as JsonValue;
-            }) as unknown as { status: "completed" | "waiting"; result: InvokeResult["result"]; newLeaf: EntryId };
+            async () => await this.rt.ports.agents.invoke(this.id, parent, opts) as unknown as JsonValue,
+        ) as unknown as AgentInvokeOutcome;
         this.cursor = out.newLeaf;
-        return { status: out.status, result: out.result };
+        return { status: out.status, result: { message: out.message, data: out.data } };
     }
 
     async excursion<T>(at: EntryId | "leaf", fn: (branch: SessionHandle) => Promise<T>): Promise<T> {
@@ -208,8 +189,8 @@ export type WorkflowEvent =
     | { type: "progress"; runId: string; state: ProgressState };
 
 export type RunEnv = {
-    /** wf.workspace.read 的数据源 */
-    files?: Record<string, string>;
+    /** wf.workspace.read 的数据源；未提供时 read 抛错 */
+    workspace?: WorkspacePort;
     /** 运行时事件订阅（SSE 前置形态） */
     onEvent?: (event: WorkflowEvent) => void;
 };
@@ -218,37 +199,37 @@ export type RunEnv = {
 function createWf(rt: Runtime, args: JsonValue): Wf {
     const openHandle = async (sessionId: SessionId): Promise<SessionHandle> => {
         const out = await rt.activity("sessions.open", { id: sessionId },
-            async () => ({ leafId: rt.store.activeLeaf(sessionId) })) as { leafId: EntryId | null };
-        rt.lock(sessionId);
+            async () => ({ leafId: await rt.ports.sessions.activeLeaf(sessionId) })) as { leafId: EntryId | null };
+        await rt.lock(sessionId);
         return new Handle(rt, sessionId, out.leafId);
     };
 
     return {
         args,
         agents: {
-            profile: (profileKey) => rt.activity("agents.profile", { profileKey }, async () => rt.agents.profileInfo(profileKey)),
+            profile: (profileKey) => rt.activity("agents.profile", { profileKey }, async () => rt.ports.agents.profileInfo(profileKey)),
             create: async (profileKey, opts = {}) => {
                 const out = await rt.activity("agents.create",
                     { profileKey, initial: opts.initial ?? null, tags: opts.tags ?? [], parent: opts.parent?.id ?? null, ephemeral: opts.ephemeral ?? false },
                     async () => {
-                        const meta = rt.store.createSession({
+                        const meta = await rt.ports.sessions.createSession({
                             profileKey, kind: "chat", tags: opts.tags ?? [], parentSessionId: opts.parent?.id,
                         });
                         return { sessionId: meta.sessionId };
                     }) as { sessionId: SessionId };
                 if (opts.ephemeral) rt.exec.ephemeral.add(out.sessionId);
-                rt.lock(out.sessionId);
+                await rt.lock(out.sessionId);
                 return new Handle(rt, out.sessionId, null);
             },
             acquire: async ({ profileKey, tag, parent }) => {
                 const out = await rt.activity("agents.acquire", { profileKey, tag },
                     async () => {
-                        const found = rt.store.findByTag(profileKey, tag);
-                        if (found) return { sessionId: found.sessionId, leafId: rt.store.activeLeaf(found.sessionId), created: false };
-                        const meta = rt.store.createSession({ profileKey, kind: "chat", tags: [tag], parentSessionId: parent?.id });
+                        const found = await rt.ports.sessions.findByTag(profileKey, tag);
+                        if (found) return { sessionId: found.sessionId, leafId: await rt.ports.sessions.activeLeaf(found.sessionId), created: false };
+                        const meta = await rt.ports.sessions.createSession({ profileKey, kind: "chat", tags: [tag], parentSessionId: parent?.id });
                         return { sessionId: meta.sessionId, leafId: null, created: true };
                     }) as { sessionId: SessionId; leafId: EntryId | null };
-                rt.lock(out.sessionId);
+                await rt.lock(out.sessionId);
                 return new Handle(rt, out.sessionId, out.leafId);
             },
             invoke: async (sessionId, opts) => (await openHandle(sessionId)).invoke(opts),
@@ -279,9 +260,8 @@ function createWf(rt: Runtime, args: JsonValue): Wf {
         },
         workspace: {
             read: (path) => rt.activity("workspace.read", { path }, async () => {
-                const content = rt.env.files?.[path];
-                if (content === undefined) throw new Error(`workspace 文件不存在: ${path}`);
-                return content;
+                if (!rt.env.workspace) throw new Error("本环境未提供 workspace 端口");
+                return await rt.env.workspace.read(path);
             }),
         },
         caller: async () => {
@@ -323,7 +303,7 @@ export class WorkflowRunner {
     private runs = new Map<string, RunRecord>();
     private nextRunId = 1;
 
-    constructor(private store: SessionStore, private agents: AgentRegistry, private env: RunEnv = {}) {}
+    constructor(private ports: WorkflowPorts, private env: RunEnv = {}) {}
 
     /** 面 A（无 caller）/ 面 B（callerSessionId = 发起 agent 的 session） */
     async start(def: WorkflowDefinition<never, never> | WorkflowDefinition, args: JsonValue, opts?: { callerSessionId?: SessionId }): Promise<RunView> {
@@ -363,6 +343,11 @@ export class WorkflowRunner {
         return toView(this.record(runId));
     }
 
+    /** 所有 run 概览（demo / 调试用） */
+    list(): RunView[] {
+        return [...this.runs.values()].map(toView);
+    }
+
     private async execute(run: RunRecord): Promise<RunView> {
         run.status = "running";
         this.env.onEvent?.({ type: "status", runId: run.runId, status: "running" });
@@ -371,12 +356,12 @@ export class WorkflowRunner {
         run.progress = null;
         run.error = undefined;
         const exec = new ExecutionState();
-        const rt = new Runtime(run, exec, this.store, this.agents, this.env);
+        const rt = new Runtime(run, exec, this.ports, this.env);
         try {
             const result = await branchContext.run({ path: "root" }, () => run.def.run(createWf(rt, run.args), run.args));
             run.status = "completed";
             run.result = result as JsonValue;
-            for (const sessionId of exec.ephemeral) this.store.archive(sessionId);
+            for (const sessionId of exec.ephemeral) await this.ports.sessions.archive(sessionId);
         } catch (error) {
             if (error instanceof SuspendSignal) {
                 run.status = "waiting";
@@ -388,7 +373,7 @@ export class WorkflowRunner {
             }
         } finally {
             // 结束或挂起都释放锁：挂起可能等很久，不该锁死用户对话
-            this.store.releaseAll(run.runId);
+            await this.ports.sessions.releaseAll(run.runId);
             this.env.onEvent?.({ type: "status", runId: run.runId, status: run.status });
         }
         return toView(run);

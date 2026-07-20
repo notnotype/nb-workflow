@@ -9,7 +9,8 @@
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
-export type EntryId = number;
+/** 对齐 NeuroBook：SessionEntryId 是字符串，SessionId 是数字 */
+export type EntryId = string;
 export type SessionId = number;
 
 /** Session 元数据（对齐 Task 110 meta 整理：kind + tags 为新增一等字段） */

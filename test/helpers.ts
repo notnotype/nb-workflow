@@ -1,27 +1,26 @@
-import { AgentRegistry, SessionStore, WorkflowRunner, type RunEnv, type SessionId } from "../src/index";
+import { MemorySessionStore, MockAgentPort, WorkflowRunner, type RunEnv, type SessionId } from "../src/index";
 
 /** 组装一套隔离的 spike 环境 */
 export function makeEnv(env: RunEnv = {}) {
-    const store = new SessionStore();
-    const agents = new AgentRegistry();
-    const runner = new WorkflowRunner(store, agents, env);
+    const store = new MemorySessionStore();
+    const agents = new MockAgentPort(store);
+    const runner = new WorkflowRunner({ sessions: store, agents }, env);
     return { store, agents, runner };
 }
 
 /** 模拟用户在 run 之外与某 session 直接对话（普通聊天入口） */
-export async function directChat(store: SessionStore, agents: AgentRegistry, sessionId: SessionId, message: string) {
-    store.lock(sessionId, "direct");
+export async function directChat(store: MemorySessionStore, agents: MockAgentPort, sessionId: SessionId, message: string) {
+    await store.lock(sessionId, "direct");
     try {
-        const user = store.append(sessionId, store.activeLeaf(sessionId), {
-            type: "message", role: "user", message, origin: "direct",
+        const userLeaf = await store.append(sessionId, await store.activeLeaf(sessionId), {
+            role: "user", message, origin: "direct",
         });
-        const resp = await agents.respond(store, sessionId, user.id, { mode: "prompt", message });
-        const asst = store.append(sessionId, user.id, {
-            type: "message", role: "assistant", message: resp.message, data: resp.data, origin: "direct",
+        const resp = await agents.respondAt(sessionId, userLeaf, { mode: "prompt", message });
+        await store.append(sessionId, userLeaf, {
+            role: "assistant", message: resp.message, data: resp.data, origin: "direct",
         });
-        store.setActiveLeaf(sessionId, asst.id);
         return resp;
     } finally {
-        store.releaseAll("direct");
+        await store.releaseAll("direct");
     }
 }

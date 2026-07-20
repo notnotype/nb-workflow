@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { makeEnv } from "./helpers";
-import { extractCfg, skeletonMermaid, traceGraph } from "../src/index";
+import { createMemoryWorkspace, extractCfg, skeletonMermaid, traceGraph } from "../src/index";
 import type { Wf, WorkflowDefinition } from "../src/index";
 
 /** 三种投影：声明骨架（运行前）/ AST 近似 CFG（静态尽力）/ 动态 trace（精确执行图） */
@@ -47,7 +47,7 @@ describe("三种投影", () => {
     });
 
     test("投影三：journal trace 是精确执行图，含分支派生与汇合边", async () => {
-        const { agents, runner } = makeEnv({ files: { "book.md": "一|二|三" } });
+        const { agents, runner } = makeEnv({ workspace: createMemoryWorkspace({ "book.md": "一|二|三" }) });
         agents.register("summarizer", ({ input }) => ({ message: "ok", data: { brief: (input as { text: string }).text } }));
         agents.register("analyst", () => ({ message: "ok", data: { arcs: 3 } }));
 

@@ -152,7 +152,7 @@ describe("journal 内核", () => {
         expect(restored).toBe(true);
         const all = store.allEntries(sessionId);
         expect(all.some((e) => e.message === "旁支探针")).toBe(true); // 旁支还在树上
-        const mainline = store.transcript(sessionId, store.activeLeaf(sessionId));
+        const mainline = await store.transcript(sessionId, await store.activeLeaf(sessionId));
         expect(mainline.map((e) => e.message)).toEqual(["主线一", "主线二"]); // 主线不含探针
     });
 });

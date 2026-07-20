@@ -1,6 +1,7 @@
 export * from "./types";
-export { SessionStore, SessionBusyError } from "./session-store";
-export { AgentRegistry, type MockResponder } from "./agents";
+export { SessionBusyError, type SessionPort, type AgentPort, type AgentInvokeOutcome, type WorkspacePort, type WorkflowPorts } from "./ports";
+export { MemorySessionStore, createMemoryWorkspace } from "./session-store";
+export { MockAgentPort, type MockResponder } from "./agents";
 export { WorkflowRunner, SuspendSignal, type RunEnv, type WorkflowEvent } from "./runner";
 export { skeletonMermaid } from "./projection/skeleton";
 export { extractCfg } from "./projection/cfg";

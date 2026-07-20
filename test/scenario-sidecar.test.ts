@@ -17,10 +17,9 @@ describe("场景：sidecar 旁路", () => {
         }));
 
         // 预置 caller：一个已有历史的 actor session（模拟主 run 前的状态）
-        const caller = store.createSession({ profileKey: "simulator.actor", kind: "chat", tags: ["rp:actor:alice"] });
-        const e1 = store.append(caller.sessionId, null, { type: "message", role: "user", message: "回合一输入", origin: "direct" });
-        const e2 = store.append(caller.sessionId, e1.id, { type: "message", role: "assistant", message: "回合一回应", origin: "direct" });
-        store.setActiveLeaf(caller.sessionId, e2.id);
+        const caller = await store.createSession({ profileKey: "simulator.actor", kind: "chat", tags: ["rp:actor:alice"] });
+        const e1 = await store.append(caller.sessionId, null, { role: "user", message: "回合一输入", origin: "direct" });
+        await store.append(caller.sessionId, e1, { role: "assistant", message: "回合一回应", origin: "direct" });
 
         const contextLoad: WorkflowDefinition = {
             key: "actor-context-load",
@@ -44,12 +43,12 @@ describe("场景：sidecar 旁路", () => {
         expect(view.result).toEqual({ injected: 1 });
 
         // 主线 = 原历史 + 注入的 context；探针不在主线
-        const mainline = store.transcript(caller.sessionId, store.activeLeaf(caller.sessionId));
+        const mainline = await store.transcript(caller.sessionId, await store.activeLeaf(caller.sessionId));
         expect(mainline.map((e) => e.message ?? "ctx")).toEqual(["回合一输入", "回合一回应", "ctx"]);
         expect((mainline[2].input as { actorContext: string[] }).actorContext[0]).toContain("酒馆的旧识");
         // 旁支探针仍在树上可追溯
         expect(store.allEntries(caller.sessionId).some((e) => e.message?.includes("旁路探针"))).toBe(true);
         // 检索 agent 是 ephemeral，run 后归档
-        expect(store.meta(caller.sessionId + 1).archived).toBe(true);
+        expect((await store.meta(caller.sessionId + 1)).archived).toBe(true);
     });
 });

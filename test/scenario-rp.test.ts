@@ -25,11 +25,11 @@ describe("场景：RP 持久参与者", () => {
                 data: { dispatch: [{ subjectId: "alice", packet: `艾丽丝对「${message}」的反应` }, { subjectId: "bob", packet: `鲍勃对「${message}」的反应` }] } as JsonValue,
             };
         });
-        env.agents.register("simulator.actor", ({ input, history, sessionId }) => {
+        env.agents.register("simulator.actor", async ({ input, history, sessionId }) => {
             // 演练锁：actor 执行期间尝试用户直聊 leader，应被拒
             try {
-                leaderStore.lock(1, "direct");
-                leaderStore.releaseAll("direct");
+                await leaderStore.lock(1, "direct");
+                await leaderStore.releaseAll("direct");
             } catch (error) {
                 if (error instanceof SessionBusyError) busyErrors.push(error.message);
             }
@@ -84,7 +84,7 @@ describe("场景：RP 持久参与者", () => {
         expect(out2.reactions.map((r) => r.actorSession)).toEqual(out1.reactions.map((r) => r.actorSession));
 
         // leader 历史连续：回合一(4) + 直聊(2) + 回合二(4)，且直聊 entry 在主线上
-        const transcript = store.transcript(out1.leaderSession, store.activeLeaf(out1.leaderSession));
+        const transcript = await store.transcript(out1.leaderSession, await store.activeLeaf(out1.leaderSession));
         expect(transcript).toHaveLength(10);
         expect(transcript.filter((e) => e.origin === "direct")).toHaveLength(2);
         // 回合二的 followup 结算里，leader 能看到含直聊在内的全部历史（到本轮输入为止 9 条）
@@ -92,7 +92,7 @@ describe("场景：RP 持久参与者", () => {
         expect(lastData.historyLen).toBe(9);
 
         // actor 记忆随回合增长（第二回合 history 包含第一回合）
-        const actorMeta = store.meta(out1.reactions[0].actorSession);
+        const actorMeta = await store.meta(out1.reactions[0].actorSession);
         expect(actorMeta.tags).toEqual(["rp:actor:alice"]);
         expect(actorMeta.parentSessionId).toBe(out1.leaderSession);
         expect(actorMeta.archived).toBe(false); // 持久参与者不归档

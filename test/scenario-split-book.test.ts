@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { makeEnv } from "./helpers";
+import { createMemoryWorkspace } from "../src/index";
 import type { JsonValue, Wf, WorkflowDefinition } from "../src/index";
 
 /**
@@ -15,7 +16,7 @@ describe("场景：拆书", () => {
     ].join("\n---\n");
 
     function setup() {
-        const env = makeEnv({ files: { "manuscript/book.md": book } });
+        const env = makeEnv({ workspace: createMemoryWorkspace({ "manuscript/book.md": book }) });
         const counters = { summarize: 0, plot: 0, style: 0 };
         env.agents.register("summarizer.chapter", ({ input }) => {
             counters.summarize++;
@@ -92,9 +93,9 @@ describe("场景：拆书", () => {
         expect(result.styles).toHaveLength(2);
 
         // ephemeral：run 成功后 7 个临时 session（4 摘要 + 1 分析 + 2 文风）全部归档
-        const archived = [1, 2, 3, 4, 5, 6, 7].filter((id) => {
-            try { return store.meta(id).archived; } catch { return false; }
-        });
-        expect(archived.length).toBe(7);
+        const archivedFlags = await Promise.all([1, 2, 3, 4, 5, 6, 7].map(async (id) => {
+            try { return (await store.meta(id)).archived; } catch { return false; }
+        }));
+        expect(archivedFlags.filter(Boolean).length).toBe(7);
     });
 });

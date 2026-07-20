@@ -10,7 +10,7 @@
  *
  * 运行：bun demo/generate.ts → 打开 demo/index.html
  */
-import { AgentRegistry, SessionStore, WorkflowRunner, extractCfg, skeletonMermaid, traceGraph } from "../src/index";
+import { MemorySessionStore, MockAgentPort, WorkflowRunner, createMemoryWorkspace, extractCfg, skeletonMermaid, traceGraph } from "../src/index";
 import type { ActivityRecord, JsonValue, Wf, WorkflowDefinition, WorkflowEvent } from "../src/index";
 import { directChat } from "../test/helpers";
 
@@ -28,10 +28,10 @@ const book = [
 ].join("\n---\n");
 
 let sink: WorkflowEvent[] = [];
-const store = new SessionStore();
-const agents = new AgentRegistry();
-const runner = new WorkflowRunner(store, agents, {
-    files: { "manuscript/book.md": book },
+const store = new MemorySessionStore();
+const agents = new MockAgentPort(store);
+const runner = new WorkflowRunner({ sessions: store, agents }, {
+    workspace: createMemoryWorkspace({ "manuscript/book.md": book }),
     onEvent: (e) => sink.push(e),
 });
 
@@ -162,9 +162,9 @@ const cfg = extractCfg(splitBook.run.toString());
 
 // ==================== 板块 4：RP 持久参与者的 session 树 ====================
 
-const store2 = new SessionStore();
-const agents2 = new AgentRegistry();
-const runner2 = new WorkflowRunner(store2, agents2);
+const store2 = new MemorySessionStore();
+const agents2 = new MockAgentPort(store2);
+const runner2 = new WorkflowRunner({ sessions: store2, agents: agents2 });
 agents2.register("simulator.leader", ({ mode, message, input }) => {
     if (mode === "followup") {
         const reactions = (input as { reactions: { message: string }[] }).reactions;
@@ -200,9 +200,9 @@ const rp2 = await runner2.start(rpTurn, { userInput: "我向吧台走去" });
 const rpReuse = (rp2.result as { leaderSession: number }).leaderSession === leaderId;
 
 /** leader session 树 → mermaid（origin 着色 + active leaf 标记） */
-function sessionTreeMermaid(sessionId: number): string {
+async function sessionTreeMermaid(sessionId: number): Promise<string> {
     const entries = store2.allEntries(sessionId);
-    const active = store2.activeLeaf(sessionId);
+    const active = await store2.activeLeaf(sessionId);
     const lines = entries.map((e) => {
         const text = e.message ?? (e.input !== undefined ? "[input]" : "[data]");
         const snippet = mlabel(text.length > 18 ? `${text.slice(0, 17)}…` : text);
@@ -214,7 +214,7 @@ function sessionTreeMermaid(sessionId: number): string {
         "    classDef workflow fill:#16202e,stroke:#3d5a99,color:#a9c4ff",
         "    classDef direct fill:#2a2313,stroke:#8a6d1e,color:#ffd479"].join("\n");
 }
-const rpTree = sessionTreeMermaid(leaderId);
+const rpTree = await sessionTreeMermaid(leaderId);
 
 // ==================== 渲染 HTML ====================
 
