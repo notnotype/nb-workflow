@@ -12,7 +12,8 @@ function canonicalize(value: JsonValue): JsonValue {
     if (Array.isArray(value)) return value.map(canonicalize);
     if (value !== null && typeof value === "object") {
         const out: { [key: string]: JsonValue } = {};
-        for (const key of Object.keys(value).sort()) out[key] = canonicalize(value[key]);
+        const entries = Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+        for (const [key, item] of entries) out[key] = canonicalize(item);
         return out;
     }
     return value;

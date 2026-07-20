@@ -45,7 +45,7 @@ describe("场景：sidecar 旁路", () => {
         // 主线 = 原历史 + 注入的 context；探针不在主线
         const mainline = await store.transcript(caller.sessionId, await store.activeLeaf(caller.sessionId));
         expect(mainline.map((e) => e.message ?? "ctx")).toEqual(["回合一输入", "回合一回应", "ctx"]);
-        expect((mainline[2].input as { actorContext: string[] }).actorContext[0]).toContain("酒馆的旧识");
+        expect((mainline[2]!.input as { actorContext: string[] }).actorContext[0]).toContain("酒馆的旧识");
         // 旁支探针仍在树上可追溯
         expect(store.allEntries(caller.sessionId).some((e) => e.message?.includes("旁路探针"))).toBe(true);
         // 检索 agent 是 ephemeral，run 后归档

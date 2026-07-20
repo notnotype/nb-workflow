@@ -81,7 +81,7 @@ export function extractCfg(source: string): CfgGraph {
     const lines = nodes.map((n) => `    c${n.id}["${sanitize(n.call)}${n.controls.length ? ` (${n.controls.join("›")})` : ""}"]`);
     const edges = nodes.slice(1).map((n, i) => {
         // 有控制结构包裹的用虚线：静态图无法断言必经
-        const dashed = n.controls.length > 0 || nodes[i].controls.length > 0;
+        const dashed = n.controls.length > 0 || (nodes[i]?.controls.length ?? 0) > 0;
         return `    c${i} ${dashed ? "-.->" : "-->"} c${i + 1}`;
     });
     return { nodes, mermaid: ["graph TD", ...lines, ...edges].join("\n") };

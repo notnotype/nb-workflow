@@ -21,7 +21,7 @@ describe("场景：拆书", () => {
         env.agents.register("summarizer.chapter", ({ input }) => {
             counters.summarize++;
             const text = (input as { text: string }).text;
-            return { message: "已摘要", data: { brief: text.split("\n")[0] } };
+            return { message: "已摘要", data: { brief: text.split("\n")[0] ?? "" } };
         });
         env.agents.register("plot.analyst", ({ input }) => {
             counters.plot++;
@@ -80,9 +80,9 @@ describe("场景：拆书", () => {
         expect(counters.summarize).toBe(4); // 4 章并发摘要已完成并进 journal
         expect(counters.plot).toBe(1);
         expect(v1.progress?.phase).toBe("plot");
-        expect(v1.pendingAsks[0].spec.title).toBe("选择要提取文风的章节");
+        expect(v1.pendingAsks[0]!.spec.title).toBe("选择要提取文风的章节");
 
-        const v2 = await runner.resume(v1.runId, { [v1.pendingAsks[0].key]: ["ch2", "ch4"] });
+        const v2 = await runner.resume(v1.runId, { [v1.pendingAsks[0]!.key]: ["ch2", "ch4"] });
         expect(v2.status).toBe("completed");
         expect(counters.summarize).toBe(4); // 缓存命中，摘要没有重跑
         expect(counters.plot).toBe(1);

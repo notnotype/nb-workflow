@@ -283,9 +283,10 @@ async function collectBranches<T>(thunks: (() => Promise<T>)[], concurrency: num
     const worker = async () => {
         while (errors.length === 0) {
             const i = next++;
-            if (i >= thunks.length) return;
+            const thunk = thunks[i];
+            if (thunk === undefined) return;
             try {
-                results[i] = await thunks[i]();
+                results[i] = await thunk();
             } catch (error) {
                 if (error instanceof SuspendSignal) suspended = true;
                 else errors.push(error);

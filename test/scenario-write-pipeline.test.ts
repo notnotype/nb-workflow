@@ -88,9 +88,9 @@ describe("场景：写作流水线", () => {
 
         const v1 = await runner.start(def, null);
         expect(v1.status).toBe("waiting");
-        expect(v1.pendingAsks[0].spec.title).toContain("金手指");
+        expect(v1.pendingAsks[0]!.spec.title).toContain("金手指");
 
-        const v2 = await runner.resume(v1.runId, { [v1.pendingAsks[0].key]: "一块能吐槽的玉佩" });
+        const v2 = await runner.resume(v1.runId, { [v1.pendingAsks[0]!.key]: "一块能吐槽的玉佩" });
         expect(v2.status).toBe("completed");
         expect(v2.result).toEqual({ draft: "基于设定「一块能吐槽的玉佩」的正文" });
     });

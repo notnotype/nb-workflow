@@ -117,10 +117,10 @@ describe("journal 内核", () => {
         const v1 = await runner.start(def, null);
         expect(v1.status).toBe("waiting");
         expect(v1.pendingAsks).toHaveLength(1);
-        expect(v1.pendingAsks[0].spec.title).toBe("叫什么名字？");
+        expect(v1.pendingAsks[0]!.spec.title).toBe("叫什么名字？");
         expect(calls).toBe(1);
 
-        const v2 = await runner.resume(v1.runId, { [v1.pendingAsks[0].key]: "艾丽丝" });
+        const v2 = await runner.resume(v1.runId, { [v1.pendingAsks[0]!.key]: "艾丽丝" });
         expect(v2.status).toBe("completed");
         expect(v2.result).toBe("echo:hello 艾丽丝");
         expect(calls).toBe(2); // before 命中缓存

@@ -27,18 +27,26 @@ export function traceGraph(journal: ActivityRecord[]): TraceGraph {
 
     // 同路径顺序边
     for (const list of byPath.values()) {
-        for (let i = 1; i < list.length; i++) edges.push([list[i - 1].key, list[i].key]);
+        for (let i = 1; i < list.length; i++) {
+            const prev = list[i - 1];
+            const curr = list[i];
+            if (prev && curr) edges.push([prev.key, curr.key]);
+        }
     }
     // 分支边：子路径 parent/<mapSeq>:<i> 从父路径中 seq < mapSeq 的最后一个 Activity 接入
     for (const [path, list] of byPath) {
         const m = path.match(/^(.*)\/(\d+):\d+$/);
-        if (!m || list.length === 0) continue;
-        const parentList = byPath.get(m[1]) ?? [];
-        const mapSeq = Number(m[2]);
+        const first = list[0];
+        const last = list[list.length - 1];
+        if (!m || !first || !last) continue;
+        const [, parentPath, seqText] = m;
+        if (parentPath === undefined || seqText === undefined) continue;
+        const parentList = byPath.get(parentPath) ?? [];
+        const mapSeq = Number(seqText);
         const anchor = [...parentList].reverse().find((r) => r.seq < mapSeq);
-        if (anchor) edges.push([anchor.key, list[0].key]);
+        if (anchor) edges.push([anchor.key, first.key]);
         const join = parentList.find((r) => r.seq > mapSeq);
-        if (join) edges.push([list[list.length - 1].key, join.key]);
+        if (join) edges.push([last.key, join.key]);
     }
 
     const idOf = new Map(nodes.map((n, i) => [n.key, `t${i}`]));

@@ -88,11 +88,11 @@ describe("场景：RP 持久参与者", () => {
         expect(transcript).toHaveLength(10);
         expect(transcript.filter((e) => e.origin === "direct")).toHaveLength(2);
         // 回合二的 followup 结算里，leader 能看到含直聊在内的全部历史（到本轮输入为止 9 条）
-        const lastData = transcript[transcript.length - 1].data as { historyLen: number };
+        const lastData = transcript[transcript.length - 1]!.data as { historyLen: number };
         expect(lastData.historyLen).toBe(9);
 
         // actor 记忆随回合增长（第二回合 history 包含第一回合）
-        const actorMeta = await store.meta(out1.reactions[0].actorSession);
+        const actorMeta = await store.meta(out1.reactions[0]!.actorSession);
         expect(actorMeta.tags).toEqual(["rp:actor:alice"]);
         expect(actorMeta.parentSessionId).toBe(out1.leaderSession);
         expect(actorMeta.archived).toBe(false); // 持久参与者不归档
