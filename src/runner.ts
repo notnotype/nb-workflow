@@ -14,6 +14,14 @@ export class SuspendSignal extends Error {
     }
 }
 
+/** cancel(runId) 请求后，在下一个 activity 边界抛出：run 归约为 failed（journal 保留，可 rerun 恢复） */
+export class WorkflowCancelledError extends Error {
+    constructor() {
+        super("workflow run 被取消");
+        this.name = "WorkflowCancelledError";
+    }
+}
+
 /** 分支上下文：并发分支各持独立路径，seq 按路径计数，与完成顺序无关 */
 const branchContext = new AsyncLocalStorage<{ path: string }>();
 
@@ -22,6 +30,8 @@ type RunRecord = {
     def: WorkflowDefinition;
     args: JsonValue;
     callerSessionId: SessionId | null;
+    /** 运行时取消请求：下一个 activity 边界生效；execute 开始时重置（rerun 可恢复） */
+    abortRequested?: boolean;
     /** run 级默认模型：agents.create 未显式指定 model 时使用（"provider/model" key） */
     defaultModel: string | null;
     /** run 级 workspace 端口：覆盖 RunEnv.workspace（面 B 场景按发起方 workspace 注入） */
@@ -71,6 +81,7 @@ class Runtime {
      * spike 只记成功：错误不落 journal，重跑时重执行（发现 F4）。
      */
     async activity<T extends JsonValue>(kind: string, params: JsonValue, fn: () => Promise<T>): Promise<T> {
+        if (this.run.abortRequested) throw new WorkflowCancelledError();
         const path = this.path();
         const seq = this.exec.nextSeq(path);
         const key = `${path}#${seq}`;
@@ -373,6 +384,15 @@ export class WorkflowRunner {
         return await this.execute(this.record(runId));
     }
 
+    /**
+     * 请求取消正在执行的 run：置标志，下一个 activity 边界抛 WorkflowCancelledError（failed 归约，
+     * journal 保留）。不掐正在进行的单次 agent 调用。execute 开始时重置标志，因此 rerun 可恢复；
+     * waiting 中的 run 取消由宿主 job 层表达（不再跟踪），内核侧无需动作。
+     */
+    cancel(runId: string): void {
+        this.record(runId).abortRequested = true;
+    }
+
     view(runId: string): RunView {
         return toView(this.record(runId));
     }
@@ -385,6 +405,7 @@ export class WorkflowRunner {
     private async execute(run: RunRecord): Promise<RunView> {
         if (this.inFlight.has(run.runId)) throw new Error(`run ${run.runId} 正在执行中`);
         this.inFlight.add(run.runId);
+        run.abortRequested = false;
         run.status = "running";
         this.env.onEvent?.({ type: "status", runId: run.runId, status: "running" });
         run.pendingAsks = [];
