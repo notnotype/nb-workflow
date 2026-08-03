@@ -47,6 +47,26 @@ export interface SessionPort {
     releaseAll(holder: string): Promise<void>;
 }
 
+/** 一次真实模型调用的完整 token / cost 用量；随 journal 持久供宿主汇总。 */
+export type AgentInvokeUsage = {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    /** provider 提供 1h cache write 明细时存在。 */
+    cacheWrite1hTokens?: number;
+    /** provider 提供 reasoning token 明细时存在。 */
+    reasoningTokens?: number;
+    totalTokens: number;
+    cost: {
+        input: number;
+        output: number;
+        cacheRead: number;
+        cacheWrite: number;
+        total: number;
+    };
+};
+
 /** 一次 agent invoke 的结果（journal 落这个形状） */
 export type AgentInvokeOutcome = {
     status: "completed" | "waiting";
@@ -56,7 +76,7 @@ export type AgentInvokeOutcome = {
     /** invoke 后 session 的新游标：completed = assistant entry；waiting = user entry（等待补充输入） */
     newLeaf: EntryId | null;
     /** 本轮 token 用量（真实模型才有；mock/未知为空）。随 journal 持久，宿主据此汇总 run 级用量 */
-    usage?: { inputTokens: number; outputTokens: number } | null;
+    usage?: AgentInvokeUsage | null;
 };
 
 /**

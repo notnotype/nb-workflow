@@ -55,6 +55,8 @@ export type InvokeOptions = {
     mode?: "prompt" | "continue" | "steer" | "followup";
     message?: string;
     input?: JsonValue;
+    /** Run 取消信号；宿主 AgentPort 应将它绑定到本次精确 invocation。 */
+    signal?: AbortSignal;
 };
 
 /** journal 中一条 Activity 记录。spike 只记成功（错误不落 journal，重跑时重执行——见 README 发现 F4） */
@@ -83,11 +85,13 @@ export type PendingAsk = {
 export type AskSpec = {
     kind: "select" | "text" | "approve";
     title: string;
+    /** 可选 Markdown 说明；为空表示仅展示标题，非空表示给用户的完整审批/提问上下文。 */
+    description?: string;
     options?: { id: string; label: string }[];
     multi?: boolean;
 };
 
-export type RunStatus = "running" | "waiting" | "completed" | "failed";
+export type RunStatus = "running" | "waiting" | "completed" | "failed" | "cancelled";
 
 /** workflow 定义：spike 中脚本是真函数（沙盒是接入期问题）；phases 用于骨架投影 */
 export type WorkflowDefinition<TArgs = JsonValue, TResult = JsonValue> = {

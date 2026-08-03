@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
 import { fingerprint } from "./fingerprint";
 import type { AgentInvokeOutcome, WorkflowPorts, WorkspacePort } from "./ports";
 import type {
@@ -14,7 +15,7 @@ export class SuspendSignal extends Error {
     }
 }
 
-/** cancel(runId) 请求后，在下一个 activity 边界抛出：run 归约为 failed（journal 保留，可 rerun 恢复） */
+/** cancel(runId) 请求后，Run signal 先取消 Agent activity，activity 边界再归约为 cancelled。 */
 export class WorkflowCancelledError extends Error {
     constructor() {
         super("workflow run 被取消");
@@ -30,8 +31,12 @@ type RunRecord = {
     def: WorkflowDefinition;
     args: JsonValue;
     callerSessionId: SessionId | null;
-    /** 运行时取消请求：下一个 activity 边界生效；execute 开始时重置（rerun 可恢复） */
+    /** 运行时取消请求：Agent activity 通过 signal 尽快收口，当前 execute 结束时归约为 cancelled。 */
     abortRequested?: boolean;
+    /** Run 级取消信号：所有并发 Agent activity 共享，由 cancel(runId) 触发。 */
+    abortController: AbortController;
+    /** 外部调用方 signal 的解绑函数；waiting 期间保留，终态时释放。 */
+    removeExternalAbort?: () => void;
     /** run 级默认模型：agents.create 未显式指定 model 时使用（"provider/model" key） */
     defaultModel: string | null;
     /** run 级 workspace 端口：覆盖 RunEnv.workspace（面 B 场景按发起方 workspace 注入） */
@@ -75,13 +80,23 @@ class Runtime {
         return branchContext.getStore()?.path ?? "root";
     }
 
+    /** 当前 Run 的取消信号；AgentPort 用它精确取消本 Run 拥有的 invocation。 */
+    get signal(): AbortSignal {
+        return this.run.abortController.signal;
+    }
+
+    /** activity 提交前后的统一取消门禁。 */
+    private assertRunning(): void {
+        if (this.run.abortRequested || this.signal.aborted) throw new WorkflowCancelledError();
+    }
+
     /**
      * Activity 核心：ActivityKey = (路径, 序号, kind, 参数指纹)。
      * 全匹配 → 返回记录值；不匹配 → 本路径从该 seq 起后缀失效，转真实执行。
      * spike 只记成功：错误不落 journal，重跑时重执行（发现 F4）。
      */
     async activity<T extends JsonValue>(kind: string, params: JsonValue, fn: () => Promise<T>): Promise<T> {
-        if (this.run.abortRequested) throw new WorkflowCancelledError();
+        this.assertRunning();
         const path = this.path();
         const seq = this.exec.nextSeq(path);
         const key = `${path}#${seq}`;
@@ -98,6 +113,8 @@ class Runtime {
         }
         this.env.onEvent?.({ type: "activity_started", runId: this.run.runId, key, path, seq, kind, fingerprint: fp });
         const result = await fn();
+        // cancel 与 activity 完成竞争时，迟到成功不得进入 journal。
+        this.assertRunning();
         const record: ActivityRecord = { key, path, seq, kind, fingerprint: fp, result };
         this.run.journal.set(key, record);
         this.env.onEvent?.({ type: "activity", runId: this.run.runId, record, cached: false });
@@ -172,7 +189,7 @@ class Handle implements SessionHandle {
         const parent = this.cursor;
         const out = await this.rt.activity("agents.invoke",
             { id: this.id, mode: opts.mode ?? "prompt", message: opts.message ?? null, input: opts.input ?? null },
-            async () => await this.rt.ports.agents.invoke(this.id, parent, opts) as unknown as JsonValue,
+            async () => await this.rt.ports.agents.invoke(this.id, parent, {...opts, signal: this.rt.signal}) as unknown as JsonValue,
         ) as unknown as AgentInvokeOutcome;
         this.cursor = out.newLeaf;
         return { status: out.status, result: { message: out.message, data: out.data } };
@@ -333,7 +350,6 @@ async function collectBranches<T>(thunks: (() => Promise<T>)[], concurrency: num
 /** workflow 运行器：start / resume / rerun；run 状态与 journal 常驻内存（spike） */
 export class WorkflowRunner {
     private runs = new Map<string, RunRecord>();
-    private nextRunId = 1;
     /** 正在执行中的 run：防止同一 run 并发 execute（begin 后 rerun / 重复 resume） */
     private inFlight = new Set<string>();
 
@@ -344,12 +360,15 @@ export class WorkflowRunner {
      * done 不会 reject（失败也归约为 status:"failed" 的 RunView）。
      */
     /** begin/start 的启动选项（面 B/工具触发时由宿主注入） */
-    begin(def: WorkflowDefinition<never, never> | WorkflowDefinition, args: JsonValue, opts?: { callerSessionId?: SessionId; defaultModel?: string; workspace?: WorkspacePort }): { runId: string; done: Promise<RunView> } {
+    begin(def: WorkflowDefinition<never, never> | WorkflowDefinition, args: JsonValue, opts?: { callerSessionId?: SessionId; defaultModel?: string; workspace?: WorkspacePort; signal?: AbortSignal }): { runId: string; done: Promise<RunView> } {
+        const abortController = new AbortController();
         const run: RunRecord = {
-            runId: `run_${this.nextRunId++}`,
+            // Run ID 必须跨 runner 重建保持唯一，不能依赖进程内递增计数器。
+            runId: `run_${randomUUID()}`,
             def: def as WorkflowDefinition,
             args,
             callerSessionId: opts?.callerSessionId ?? null,
+            abortController,
             defaultModel: opts?.defaultModel ?? null,
             workspace: opts?.workspace ?? null,
             status: "running",
@@ -359,18 +378,30 @@ export class WorkflowRunner {
             progress: null,
         };
         this.runs.set(run.runId, run);
+        if (opts?.signal) {
+            const onAbort = () => {
+                this.cancel(run.runId);
+            };
+            if (opts.signal.aborted) {
+                run.abortRequested = true;
+                abortController.abort(opts.signal.reason);
+            } else {
+                opts.signal.addEventListener("abort", onAbort, {once: true});
+                run.removeExternalAbort = () => opts.signal?.removeEventListener("abort", onAbort);
+            }
+        }
         return { runId: run.runId, done: this.execute(run) };
     }
 
     /** 面 A（无 caller）/ 面 B（callerSessionId = 发起 agent 的 session） */
-    async start(def: WorkflowDefinition<never, never> | WorkflowDefinition, args: JsonValue, opts?: { callerSessionId?: SessionId; defaultModel?: string; workspace?: WorkspacePort }): Promise<RunView> {
+    async start(def: WorkflowDefinition<never, never> | WorkflowDefinition, args: JsonValue, opts?: { callerSessionId?: SessionId; defaultModel?: string; workspace?: WorkspacePort; signal?: AbortSignal }): Promise<RunView> {
         return await this.begin(def, args, opts).done;
     }
 
-    /** 应答 pending ask 后重放续跑；answers 按 ask key 对号 */
+    /** 应答 pending ask 后重放续跑；answers 按 ask key 对号。cancelled/终态不可恢复。 */
     async resume(runId: string, answers: Record<string, JsonValue>): Promise<RunView> {
         const run = this.record(runId);
-        if (run.status !== "waiting") throw new Error(`run ${runId} 非 waiting 状态`);
+        if (run.status !== "waiting") throw new Error(`run ${runId} 非 waiting 状态，当前为 ${run.status}`);
         for (const ask of run.pendingAsks) {
             const answer = answers[ask.key];
             if (answer === undefined) throw new Error(`缺少 ask 应答: ${ask.key}（${ask.spec.title}）`);
@@ -379,18 +410,31 @@ export class WorkflowRunner {
         return await this.execute(run);
     }
 
-    /** 崩溃/失败后按既有 journal 重放恢复（已完成 Activity 不重跑） */
+    /** 崩溃/失败后按既有 journal 重放恢复；用户取消是显式终态，不允许 rerun 绕过。 */
     async rerun(runId: string): Promise<RunView> {
-        return await this.execute(this.record(runId));
+        const run = this.record(runId);
+        if (run.status === "cancelled") throw new Error(`run ${runId} 已取消，不能 rerun`);
+        return await this.execute(run);
     }
 
     /**
-     * 请求取消正在执行的 run：置标志，下一个 activity 边界抛 WorkflowCancelledError（failed 归约，
-     * journal 保留）。不掐正在进行的单次 agent 调用。execute 开始时重置标志，因此 rerun 可恢复；
-     * waiting 中的 run 取消由宿主 job 层表达（不再跟踪），内核侧无需动作。
+     * 请求取消 run。running 先 abort 当前 Agent activity，waiting 立即进入 cancelled，
+     * 从而不会被之后的 resume API 重新启动。
      */
     cancel(runId: string): void {
-        this.record(runId).abortRequested = true;
+        const run = this.record(runId);
+        if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") return;
+        run.abortRequested = true;
+        run.abortController.abort(new WorkflowCancelledError());
+        if (run.status === "waiting") {
+            run.status = "cancelled";
+            run.error = "workflow run 被取消";
+            run.pendingAsks = [];
+            run.removeExternalAbort?.();
+            run.removeExternalAbort = undefined;
+            this.env.onEvent?.({type: "status", runId: run.runId, status: run.status});
+            return;
+        }
     }
 
     view(runId: string): RunView {
@@ -405,7 +449,6 @@ export class WorkflowRunner {
     private async execute(run: RunRecord): Promise<RunView> {
         if (this.inFlight.has(run.runId)) throw new Error(`run ${run.runId} 正在执行中`);
         this.inFlight.add(run.runId);
-        run.abortRequested = false;
         run.status = "running";
         this.env.onEvent?.({ type: "status", runId: run.runId, status: "running" });
         run.pendingAsks = [];
@@ -416,12 +459,26 @@ export class WorkflowRunner {
         const rt = new Runtime(run, exec, this.ports, this.env);
         try {
             const result = await branchContext.run({ path: "root" }, () => run.def.run(createWf(rt, run.args), run.args));
-            run.status = "completed";
-            run.result = result as JsonValue;
-            for (const sessionId of exec.ephemeral) await this.ports.sessions.archive(sessionId);
+            if (run.abortRequested) {
+                run.status = "cancelled";
+                run.error = "workflow run 被取消";
+                run.pendingAsks = [];
+            } else {
+                run.status = "completed";
+                run.result = result as JsonValue;
+                for (const sessionId of exec.ephemeral) await this.ports.sessions.archive(sessionId);
+            }
         } catch (error) {
             if (error instanceof SuspendSignal) {
-                run.status = "waiting";
+                run.status = run.abortRequested ? "cancelled" : "waiting";
+                if (run.status === "cancelled") {
+                    run.error = "workflow run 被取消";
+                    run.pendingAsks = [];
+                }
+            } else if (error instanceof WorkflowCancelledError || run.abortRequested) {
+                run.status = "cancelled";
+                run.error = "workflow run 被取消";
+                run.pendingAsks = [];
             } else {
                 run.status = "failed";
                 run.error = error instanceof Error ? error.message : String(error);
@@ -433,6 +490,10 @@ export class WorkflowRunner {
             this.inFlight.delete(run.runId);
             await this.ports.sessions.releaseAll(run.runId);
             this.env.onEvent?.({ type: "status", runId: run.runId, status: run.status });
+            if (run.status !== "waiting") {
+                run.removeExternalAbort?.();
+                run.removeExternalAbort = undefined;
+            }
         }
         return toView(run);
     }

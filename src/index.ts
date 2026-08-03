@@ -1,5 +1,5 @@
 export * from "./types";
-export { SessionBusyError, type SessionPort, type AgentPort, type AgentInvokeOutcome, type WorkspacePort, type WorkflowPorts } from "./ports";
+export { SessionBusyError, type SessionPort, type AgentPort, type AgentInvokeOutcome, type AgentInvokeUsage, type WorkspacePort, type WorkflowPorts } from "./ports";
 export { MemorySessionStore, createMemoryWorkspace } from "./session-store";
 export { MockAgentPort, type MockResponder } from "./agents";
 export { WorkflowRunner, SuspendSignal, WorkflowCancelledError, type RunEnv, type WorkflowEvent } from "./runner";
