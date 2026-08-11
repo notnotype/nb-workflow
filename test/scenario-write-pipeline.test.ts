@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { makeEnv } from "./helpers";
-import type { JsonValue, Wf, WorkflowDefinition } from "../src/index";
+import type {
+    AgentWorkflowDefinition as WorkflowDefinition,
+    JsonValue,
+    Wf,
+} from "../src/index";
 
 /**
  * 场景二：写作流水线。

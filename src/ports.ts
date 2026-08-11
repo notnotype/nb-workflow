@@ -1,4 +1,18 @@
-import type { EntryId, InvokeOptions, JsonValue, SessionEntry, SessionId, SessionMeta } from "./types";
+import type {
+    ActivityCallOptions,
+    ActivityIdentity,
+    AnyWorkflowDefinition,
+    ChildWorkflowOptions,
+    EntryId,
+    InvokeOptions,
+    JsonValue,
+    SessionEntry,
+    SessionId,
+    SessionMeta,
+    ValueRef,
+    WorkflowDefinitionReference,
+    WorkflowEventEnvelope,
+} from "./types";
 
 /** session 被其他持有者占用（workflow run 或用户直接对话） */
 export class SessionBusyError extends Error {
@@ -47,6 +61,24 @@ export interface SessionPort {
     releaseAll(holder: string): Promise<void>;
 }
 
+/** 一次真实模型调用的完整 token/cost 用量；随 journal 持久供宿主汇总。 */
+export type AgentInvokeUsage = {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    cacheWrite1hTokens?: number;
+    reasoningTokens?: number;
+    totalTokens: number;
+    cost: {
+        input: number;
+        output: number;
+        cacheRead: number;
+        cacheWrite: number;
+        total: number;
+    };
+};
+
 /** 一次 agent invoke 的结果（journal 落这个形状） */
 export type AgentInvokeOutcome = {
     status: "completed" | "waiting";
@@ -56,7 +88,7 @@ export type AgentInvokeOutcome = {
     /** invoke 后 session 的新游标：completed = assistant entry；waiting = user entry（等待补充输入） */
     newLeaf: EntryId | null;
     /** 本轮 token 用量（真实模型才有；mock/未知为空）。随 journal 持久，宿主据此汇总 run 级用量 */
-    usage?: { inputTokens: number; outputTokens: number } | null;
+    usage?: AgentInvokeUsage | null;
 };
 
 /**
@@ -75,8 +107,127 @@ export interface WorkspacePort {
     read(path: string): Promise<string>;
 }
 
+export interface Clock {
+    now(): Date;
+}
+
+export interface IdGenerator {
+    nextId(scope: "run" | "event" | "value"): string;
+}
+
+export interface RandomSource {
+    /** 返回 [0, 1)；Kernel 会在写 journal 前校验。 */
+    next(): number;
+}
+
+export interface ValueStore {
+    put(value: JsonValue): Promise<ValueRef>;
+    get(reference: ValueRef): Promise<JsonValue>;
+}
+
+export type EventSinkRequest = {
+    event: WorkflowEventEnvelope;
+    context: ActivityExecutionContext;
+};
+
+export interface EventSink {
+    emit(request: EventSinkRequest): Promise<void>;
+}
+
+export type SignalPublishInput = {
+    runId: string;
+    reference: string;
+    value: JsonValue;
+    idempotencyKey: string;
+};
+
+export type SignalConsumeInput = {
+    runId: string;
+    reference: string;
+    context: ActivityExecutionContext;
+};
+
+export type SignalConsumeResult =
+    | { status: "waiting" }
+    | { status: "available"; value: JsonValue };
+
+export interface SignalStore {
+    publish(input: SignalPublishInput): Promise<void>;
+    consume(input: SignalConsumeInput): Promise<SignalConsumeResult>;
+}
+
+export type TimerWaitInput = {
+    runId: string;
+    durationMs: number;
+    now: string;
+    context: ActivityExecutionContext;
+};
+
+export type TimerWaitResult =
+    | { status: "waiting"; dueAt: string }
+    | { status: "ready"; dueAt: string };
+
+export interface TimerStore {
+    wait(input: TimerWaitInput): Promise<TimerWaitResult>;
+}
+
+export type ChildWorkflowStartInput = {
+    parentRunId: string;
+    workflowReference: string;
+    input: JsonValue;
+    options: Required<Pick<ChildWorkflowOptions, "wait" | "cancelPolicy">>
+        & Pick<ChildWorkflowOptions, "key">;
+    context: ActivityExecutionContext;
+};
+
+export type ChildWorkflowStartResult =
+    | { status: "running"; runId: string }
+    | { status: "completed"; runId: string; result: JsonValue }
+    | {
+        status: "failed" | "cancelled";
+        runId: string;
+        error: string;
+    };
+
+export interface ChildWorkflowStore {
+    start(
+        input: ChildWorkflowStartInput,
+    ): Promise<ChildWorkflowStartResult>;
+    cancelForParent(parentRunId: string): Promise<void>;
+}
+
+export type ActivityExecutionContext = {
+    runId: string;
+    activity: ActivityIdentity;
+    idempotencyKey: string;
+    signal: AbortSignal;
+};
+
+export type ActivityExecutionRequest = {
+    reference: string;
+    input: JsonValue;
+    options: ActivityCallOptions;
+    context: ActivityExecutionContext;
+};
+
+/**
+ * 外部读取/副作用执行边界。Durable Host 必须按 context.idempotencyKey 提供
+ * 可重放执行；Kernel 只拥有脚本 identity 和 journal。
+ */
+export interface ActivityExecutor {
+    callAction(request: ActivityExecutionRequest): Promise<JsonValue>;
+    query(request: ActivityExecutionRequest): Promise<JsonValue>;
+}
+
+/** Workflow 函数由宿主加载；Backend 只保存 Definition reference。 */
+export interface DefinitionRegistry {
+    register(definition: AnyWorkflowDefinition): void;
+    resolve(reference: WorkflowDefinitionReference): AnyWorkflowDefinition;
+}
+
 /** 内核依赖的完整端口束 */
 export type WorkflowPorts = {
-    sessions: SessionPort;
-    agents: AgentPort;
+    /** Agent/Session 是可选 Extension；普通 Workflow 不需要提供。 */
+    sessions?: SessionPort;
+    agents?: AgentPort;
 };

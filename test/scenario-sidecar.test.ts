@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { makeEnv } from "./helpers";
-import type { JsonValue, Wf, WorkflowDefinition } from "../src/index";
+import type {
+    AgentWorkflowDefinition as WorkflowDefinition,
+    JsonValue,
+    Wf,
+} from "../src/index";
 
 /**
  * 场景四：sidecar 形态（面 B/C 的 caller 操作）。

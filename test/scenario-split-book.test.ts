@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { makeEnv } from "./helpers";
 import { createMemoryWorkspace } from "../src/index";
-import type { JsonValue, Wf, WorkflowDefinition } from "../src/index";
+import type {
+    AgentWorkflowDefinition as WorkflowDefinition,
+    JsonValue,
+    Wf,
+} from "../src/index";
 
 /**
  * 场景一：拆书。
