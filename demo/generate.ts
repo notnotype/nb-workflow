@@ -11,7 +11,13 @@
  * 运行：bun demo/generate.ts → 打开 demo/index.html
  */
 import { MemorySessionStore, MockAgentPort, WorkflowRunner, createMemoryWorkspace, extractCfg, skeletonMermaid, traceGraph } from "../src/index";
-import type { ActivityRecord, JsonValue, Wf, WorkflowDefinition, WorkflowEvent } from "../src/index";
+import type {
+    ActivityRecord,
+    AgentWorkflowDefinition as WorkflowDefinition,
+    JsonValue,
+    Wf,
+    WorkflowEvent,
+} from "../src/index";
 import { directChat } from "../test/helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -128,7 +134,14 @@ function buildGraph(highlightKey?: string): string {
 
 const frames: Frame[] = liveEvents.map((ev) => {
     if (ev.type === "activity_started") {
-        running.set(ev.key, { key: ev.key, path: ev.path, seq: ev.seq, kind: ev.kind, fingerprint: "", result: null });
+        running.set(ev.key, {
+            key: ev.key,
+            path: ev.path,
+            seq: ev.seq,
+            kind: ev.kind,
+            fingerprint: "",
+            result: { kind: "inline", value: null },
+        });
         return { ev, graph: buildGraph() };
     }
     if (ev.type === "activity") {

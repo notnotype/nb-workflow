@@ -1,19 +1,46 @@
 /**
- * nb-workflow spike 核心类型。
+ * nb-workflow 公共合同。
  *
- * 对应 Task 110「V1 收敛」范围：
- * - Run 即 session（spike 中简化为独立 RunRecord，不建真 session 树，接入 NeuroBook 时替换）
- * - Activity = 一切 journaled 副作用；ActivityKey = (分支路径, 路径内序号, kind, 参数指纹)
- * - Session 是持久一等公民，workflow 是无状态 conductor
+ * Core 只拥有 Workflow Run、Activity identity 和 replay 语义；Session/Agent
+ * 类型属于兼容 Extension，不是所有 Workflow 的必需状态。
  */
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+
+export type BackendDurability = "memory" | "durable" | "distributed";
+
+/** Backend 能力必须显式声明；Memory Backend 不能冒充可跨进程恢复。 */
+export type BackendCapabilities = {
+    durability: BackendDurability;
+    processRestart: boolean;
+    concurrentExecution: boolean;
+    multiWorker: boolean;
+    leases: boolean;
+    durableSignals: boolean;
+    durableTimers: boolean;
+    childWorkflows: boolean;
+    externalReceipts: boolean;
+    outbox: boolean;
+    valueReferences: boolean;
+};
+
+export type BackendRequirements = Partial<
+    Omit<BackendCapabilities, "durability">
+> & {
+    durability?: BackendDurability;
+};
+
+export type WorkflowDefinitionReference = {
+    key: string;
+    version: string;
+    manifestHash: string;
+};
 
 /** 对齐 NeuroBook：SessionEntryId 是字符串，SessionId 是数字 */
 export type EntryId = string;
 export type SessionId = number;
 
-/** Session 元数据（对齐 Task 110 meta 整理：kind + tags 为新增一等字段） */
+/** Agent Extension 使用的 Session 元数据。 */
 export type SessionMeta = {
     sessionId: SessionId;
     profileKey: string;
@@ -25,7 +52,7 @@ export type SessionMeta = {
     archived: boolean;
 };
 
-/** append-only 树上的一个 entry（spike 只建模 message，够场景验证） */
+/** Agent Extension 当前支持的 append-only message entry。 */
 export type SessionEntry = {
     id: EntryId;
     parentId: EntryId | null;
@@ -55,9 +82,28 @@ export type InvokeOptions = {
     mode?: "prompt" | "continue" | "steer" | "followup";
     message?: string;
     input?: JsonValue;
+    /** Run 取消信号；AgentPort 应将它绑定到本次精确 invocation。 */
+    signal?: AbortSignal;
 };
 
-/** journal 中一条 Activity 记录。spike 只记成功（错误不落 journal，重跑时重执行——见 README 发现 F4） */
+export type ValueRef = {
+    key: string;
+    hash: string;
+    byteSize: number;
+    mediaType: "application/json";
+};
+
+export type WorkflowValue =
+    | {
+        kind: "inline";
+        value: JsonValue;
+    }
+    | {
+        kind: "ref";
+        ref: ValueRef;
+    };
+
+/** journal 中一条成功的 Activity；失败不会进入 journal，恢复时会重试。 */
 export type ActivityRecord = {
     /** `${path}#${seq}` */
     key: string;
@@ -66,9 +112,50 @@ export type ActivityRecord = {
     /** 路径内序号（每条路径独立计数，并发完成序不影响身份） */
     seq: number;
     kind: string;
-    /** 参数规范化 JSON（spike 直接用字符串，不哈希，便于调试） */
+    /** 规范化参数的 SHA-256；不复制原始输入正文。 */
     fingerprint: string;
-    result: JsonValue;
+    /** 小值 inline；大值只保存内容寻址引用。 */
+    result: WorkflowValue;
+};
+
+export type ActivityIdentity = Omit<ActivityRecord, "result">;
+
+export type ActivityCallOptions = {
+    /** 宿主可用的稳定业务键；不替代 Kernel 的 path/sequence identity。 */
+    key?: string;
+    timeoutMs?: number;
+    metadata?: JsonValue;
+};
+
+export type CheckpointOptions = {
+    key?: string;
+};
+
+export type ChildWorkflowOptions = {
+    key?: string;
+    wait?: boolean;
+    cancelPolicy?: "propagate" | "abandon";
+};
+
+export type ChildWorkflowCallResult<TOutput extends JsonValue = JsonValue> =
+    | {
+        runId: string;
+        status: "started";
+    }
+    | {
+        runId: string;
+        status: "completed";
+        result: TOutput;
+    };
+
+export type ParallelOptions = {
+    concurrency?: number;
+};
+
+export type WorkflowEventEnvelope = {
+    type: string;
+    version: string;
+    payload: JsonValue;
 };
 
 /** 挂起中的 ask，等用户应答后经 resume 写回 journal */
@@ -80,22 +167,55 @@ export type PendingAsk = {
     spec: AskSpec;
 };
 
+export type PendingWait = {
+    kind: "signal" | "timer" | "child";
+    key: string;
+    path: string;
+    seq: number;
+    fingerprint: string;
+    reference: string;
+};
+
 export type AskSpec = {
     kind: "select" | "text" | "approve";
     title: string;
+    /** 可选 Markdown 说明；为空表示仅展示标题。 */
+    description?: string;
     options?: { id: string; label: string }[];
     multi?: boolean;
 };
 
-export type RunStatus = "running" | "waiting" | "completed" | "failed";
+export type RunStatus = "running" | "waiting" | "completed" | "failed" | "cancelled";
 
-/** workflow 定义：spike 中脚本是真函数（沙盒是接入期问题）；phases 用于骨架投影 */
-export type WorkflowDefinition<TArgs = JsonValue, TResult = JsonValue> = {
+/** Workflow 定义；脚本沙箱由宿主负责，phases 仅用于可选骨架投影。 */
+export type WorkflowDefinition<
+    TArgs = JsonValue,
+    TResult = JsonValue,
+    TContext extends WorkflowContext = WorkflowContext,
+> = {
     key: string;
+    /** 未指定时按 "1" 处理；持久 Run 永远保存解析后的显式版本。 */
+    version?: string;
+    /**
+     * 构建/注册表提供的内容身份。未指定时 Kernel 对定义元数据和函数源码计算
+     * SHA-256；跨构建部署应显式提供发布 manifest hash。
+     */
+    manifestHash?: string;
+    /** Run 创建前检查，不满足时不得执行 Workflow 代码。 */
+    requires?: BackendRequirements;
     /** 声明骨架（投影一），可选 */
     phases?: { key: string; title: string }[];
-    run: (wf: Wf, args: TArgs) => Promise<TResult>;
+    run: (workflow: TContext, args: TArgs) => Promise<TResult>;
 };
+
+export type AgentWorkflowDefinition<
+    TArgs = JsonValue,
+    TResult = JsonValue,
+> = WorkflowDefinition<TArgs, TResult, AgentWorkflowContext>;
+
+export type AnyWorkflowDefinition =
+    | WorkflowDefinition
+    | AgentWorkflowDefinition;
 
 export type ProgressState = { phase?: string; done?: number; total?: number };
 
@@ -116,8 +236,43 @@ export type ChartOp =
     | { op: "move"; from: string; to: string; token: string; sessionId?: SessionId; label?: string };
 
 /** 宿主注入的 wf 根对象（V1 收敛面） */
-export type Wf = {
+export type AgentWorkflowContext = {
     args: JsonValue;
+    /** 版本化外部能力；执行、重试和副作用边界由宿主 ActivityExecutor 提供。 */
+    callAction<TOutput extends JsonValue = JsonValue>(
+        actionReference: string,
+        input: JsonValue,
+        options?: ActivityCallOptions,
+    ): Promise<TOutput>;
+    /** 查询也进入 journal；replay 不重新读取变化中的外部状态。 */
+    query<TOutput extends JsonValue = JsonValue>(
+        queryReference: string,
+        input: JsonValue,
+        options?: ActivityCallOptions,
+    ): Promise<TOutput>;
+    /** journaled wall-clock value；Workflow 代码不应直接读取 Date.now。 */
+    now(): Promise<string>;
+    /** journaled [0, 1) value；Workflow 代码不应直接读取 Math.random。 */
+    random(): Promise<number>;
+    isCancelled(): boolean;
+    getBudget(): JsonValue | null;
+    checkpoint(
+        value: JsonValue,
+        options?: CheckpointOptions,
+    ): Promise<void>;
+    emit(
+        event: WorkflowEventEnvelope,
+        options?: ActivityCallOptions,
+    ): Promise<void>;
+    waitForSignal<TOutput extends JsonValue = JsonValue>(
+        reference: string,
+    ): Promise<TOutput>;
+    sleep(durationMs: number): Promise<void>;
+    startChildWorkflow<TOutput extends JsonValue = JsonValue>(
+        workflowReference: string,
+        input: JsonValue,
+        options?: ChildWorkflowOptions,
+    ): Promise<ChildWorkflowCallResult<TOutput>>;
     agents: {
         /** 查 profile 信息（journaled） */
         profile(profileKey: string): Promise<JsonValue>;
@@ -132,8 +287,15 @@ export type Wf = {
         open(sessionId: SessionId): Promise<SessionHandle>;
     };
     /** 并发：注意必须传 thunk（惰性函数），同一路径下裸并发会破坏 seq 确定性 */
-    all<T>(thunks: (() => Promise<T>)[]): Promise<T[]>;
-    map<TItem, TOut>(items: TItem[], fn: (item: TItem, index: number) => Promise<TOut>, opts?: { concurrency?: number }): Promise<TOut[]>;
+    all<T>(
+        thunks: (() => Promise<T>)[],
+        options?: ParallelOptions,
+    ): Promise<T[]>;
+    map<TItem, TOut>(
+        items: TItem[],
+        fn: (item: TItem, index: number) => Promise<TOut>,
+        options?: ParallelOptions,
+    ): Promise<TOut[]>;
     /** 人类参与：挂起点。无应答时抛 SuspendSignal，run 转 waiting */
     ask(spec: AskSpec): Promise<JsonValue>;
     log(message: string): void;
@@ -147,12 +309,25 @@ export type Wf = {
         move(from: string, to: string, opts?: { token?: string; sessionId?: SessionId; label?: string }): void;
     };
     workspace: {
-        /** 只读读取（journaled）；spike 从 env.files 取 */
+        /** 通过宿主 WorkspacePort 执行的 journaled 只读操作。 */
         read(path: string): Promise<string>;
     };
     /** 面 B/C：发起方 session 句柄；面 A 下调用抛错 */
     caller(): Promise<SessionHandle>;
 };
+
+export type AgentWorkflowExtension = Pick<
+    AgentWorkflowContext,
+    "agents" | "sessions" | "workspace" | "caller"
+>;
+
+export type WorkflowContext = Omit<
+    AgentWorkflowContext,
+    keyof AgentWorkflowExtension
+>;
+
+/** @deprecated 使用 WorkflowContext；需要 Agent 时显式使用 AgentWorkflowContext。 */
+export type Wf = AgentWorkflowContext;
 
 /** session 句柄：持显式游标（append/invoke 锚定游标而非全局 active leaf——发现 F2） */
 export type SessionHandle = {
@@ -171,11 +346,43 @@ export type SessionHandle = {
 export type RunView = {
     runId: string;
     workflowKey: string;
+    workflowVersion: string;
+    workflowManifestHash: string;
     status: RunStatus;
+    cancelRequestedAt: string | null;
+    budget: JsonValue | null;
+    checkpoint: WorkflowValue | null;
     result?: JsonValue;
     error?: string;
     pendingAsks: PendingAsk[];
+    pendingWaits: PendingWait[];
     logs: string[];
     progress: ProgressState | null;
     journal: ActivityRecord[];
+    revision: number;
+    createdAt: string;
+    updatedAt: string;
+};
+
+/** Backend 中的可序列化 Run 真相；不保存 Workflow 函数或宿主对象。 */
+export type WorkflowRunState = {
+    runId: string;
+    definition: WorkflowDefinitionReference;
+    input: WorkflowValue;
+    /** 版本化 Extension 的不可变 JSON 启动上下文。 */
+    extensionContext: JsonValue;
+    status: RunStatus;
+    cancelRequestedAt: string | null;
+    budget: JsonValue | null;
+    checkpoint: WorkflowValue | null;
+    result?: WorkflowValue;
+    error?: string;
+    pendingAsks: PendingAsk[];
+    pendingWaits: PendingWait[];
+    logs: string[];
+    progress: ProgressState | null;
+    journal: ActivityRecord[];
+    revision: number;
+    createdAt: string;
+    updatedAt: string;
 };

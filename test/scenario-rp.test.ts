@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { directChat, makeEnv } from "./helpers";
 import { SessionBusyError } from "../src/index";
-import type { JsonValue, Wf, WorkflowDefinition } from "../src/index";
+import type {
+    AgentWorkflowDefinition as WorkflowDefinition,
+    JsonValue,
+    Wf,
+} from "../src/index";
 
 /**
  * 场景三：角色扮演的持久参与者。
@@ -70,7 +74,7 @@ describe("场景：RP 持久参与者", () => {
 
         // run 期间 actor 内尝试用户直聊 leader → 被锁拒绝
         expect(busyErrors.length).toBeGreaterThan(0);
-        expect(busyErrors[0]).toContain("正被 run_1 占用");
+        expect(busyErrors[0]).toContain(`正被 ${r1.runId} 占用`);
 
         // 回合之间：用户单独找 leader 聊天（run 已结束，锁已释放）
         const chat = await directChat(store, agents, out1.leaderSession, "聊：刚才的酒保是谁？");

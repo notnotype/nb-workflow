@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { makeEnv } from "./helpers";
 import { createMemoryWorkspace, extractCfg, skeletonMermaid, traceGraph } from "../src/index";
-import type { Wf, WorkflowDefinition } from "../src/index";
+import type {
+    AgentWorkflowDefinition as WorkflowDefinition,
+    Wf,
+} from "../src/index";
 
 /** 三种投影：声明骨架（运行前）/ AST 近似 CFG（静态尽力）/ 动态 trace（精确执行图） */
 describe("三种投影", () => {

@@ -1,72 +1,182 @@
 # nb-workflow
 
-NeuroBook Agent Workflow 编排系统 **spike**（对应主仓 `docs/tasks/110-agent-workflow-orchestration/`）。
+脚本优先、宿主可组合的 Workflow Kernel。
 
-验证 Task 110「V1 收敛」的脚本式 durable-execution 核心 API：不接入 NeuroBook，用内存 SessionStore + mock responder 顶替真实 harness/模型，把四个真实场景全流程跑通。
+`nb-workflow` 负责确定性的脚本执行语义，不拥有 Cosmos 的 Job/Lease，也不依赖
+NeuroBook、Harness、Prisma、Redis 或某一种数据库：
 
-## 结构
-
-```
-src/
-  types.ts            核心类型：Wf 面 / SessionHandle / ActivityRecord / WorkflowDefinition
-  fingerprint.ts      参数规范化指纹（键排序 JSON，spike 不哈希便于调试）
-  session-store.ts    内存 append-only session 树 + 排它锁 + tag 寻址（对应 JsonlSessionRepository）
-  agents.ts           mock profile 注册表（对应 catalog + invokeCore）
-  runner.ts           执行内核：Activity journal 重放 / 分支上下文 / SessionHandle / ask 挂起 / runner
-  projection/
-    skeleton.ts       投影一：phases 声明骨架（运行前）
-    cfg.ts            投影二：AST 近似 CFG（typescript 解析，best-effort）
-    trace.ts          投影三：journal 动态 trace（精确执行图，含派生/汇合边）
-test/
-  kernel.test.ts               journal 缓存 / 崩溃 rerun / 参数失效 / map 并发 / ask 挂起 / excursion
-  scenario-split-book.test.ts  拆书：并发摘要→分析→挂起圈选→resume 不重跑
-  scenario-write-pipeline.test.ts  写作流水线：writer↔critic 循环 + waiting 转发
-  scenario-rp.test.ts          RP 持久参与者：acquire 跨 run 复用 + 轮间用户直聊 + 锁互斥
-  scenario-sidecar.test.ts     sidecar 旁路：excursion + 主线 append 替代 merge()
-  projection.test.ts           三种投影
+```text
+Workflow script
+  -> path + sequence + kind + fingerprint
+  -> Activity journal / replay / suffix invalidation
+  -> bounded map/all
+  -> wait / signal / timer / child / cancel
+  -> optional Backend and Host ports
 ```
 
-`bun test`（13 tests / 78 断言）、`bunx tsc --noEmit` 全绿。
+当前版本仍处于 API 稳定化阶段，尚未发布 npm 正式版。Memory 组合用于测试、demo
+和 Backend conformance；它不支持进程重启或多 Worker。
 
-## 核心 API（本 spike 固化的形态）
+## Core 与宿主边界
+
+Kernel 拥有：
+
+- Workflow Definition、输入快照和 manifest identity；
+- 版本化、不可变的 Extension 启动上下文；
+- Activity identity、SHA-256 fingerprint 和 replay；
+- 同路径后缀失效、稳定分支和有界并发；
+- Signal、Timer、Child Workflow 的等待投影；
+- 取消传播、受控时钟/随机数和 ValueRef journal。
+
+宿主通过 Port 提供：
+
+- `WorkflowBackend`：Run、journal 和 CAS revision；
+- `ActivityExecutor`：版本化 Action 与 Query；
+- `DefinitionRegistry`：精确 key/version/manifest 解析；
+- `ValueStore`：大值内容寻址；
+- `EventSink`：幂等事件发布；
+- `SignalStore`、`TimerStore`、`ChildWorkflowStore`；
+- 可选 Agent/Session extension。
+
+能力协商使用 Backend 声明与实际注入 Port 的交集。例如 Backend 声称支持
+durable Signal，但没有注入 `SignalStore` 时，Run 会在脚本执行前被拒绝。
+
+Cosmos 等 durable host 继续拥有 TaskStore、Job、Attempt、Lease、Heartbeat、Retry、
+Outbox 和领域事务。Memory Backend 不会伪装成这些能力。
+
+## Core 示例
 
 ```ts
-const wf: Wf; // 宿主注入
-wf.args; wf.log(); wf.progress({phase, done, total});
-wf.workspace.read(path);                              // journaled
-await wf.agents.profile(key);
-await wf.agents.create(key, { initial?, tags?, parent?, ephemeral? });   // ephemeral: run 成功后归档
-await wf.agents.acquire({ profileKey, tag, parent? }); // 持久参与者：找到复用，没有才建
-await wf.sessions.open(id);  await wf.caller();        // 面 B/C
-await wf.map(items, fn, { concurrency });              // thunk 化分支，seq 与完成序无关
-await wf.all([() => ..., () => ...]);                  // 必须传 thunk（见发现 F3）
-await wf.ask({ kind, title, options?, multi? });       // 挂起点
+import {
+    MemoryActivityExecutor,
+    WorkflowRunner,
+    type WorkflowDefinition,
+} from "@notnotype/nb-workflow";
 
-const h: SessionHandle;
-h.leaf();                          // 同步派生态游标
-await h.transcript({ tail? });
-await h.checkout(entryId);         // 唯一游标原语：rewind/切分支/恢复现场
-await h.append({ role, message?, input? });
-await h.invoke({ mode?, message?, input? });   // waiting 是普通返回值
-await h.excursion(at, fn);         // 旁路作用域，异常也恢复游标
+const activities = new MemoryActivityExecutor();
+activities.registerAction("math.double@1", (input) => ({
+    value: (input as { value: number }).value * 2,
+}));
 
-const runner = new WorkflowRunner(store, agents, env);
-await runner.start(def, args, { callerSessionId? });
-await runner.resume(runId, { [askKey]: answer });
-await runner.rerun(runId);         // 崩溃恢复：journal 命中不重跑
+const definition: WorkflowDefinition = {
+    key: "example",
+    version: "1",
+    manifestHash: "sha256:example-v1",
+    run: async (workflow) => {
+        const result = await workflow.callAction<{ value: number }>(
+            "math.double@1",
+            { value: 21 },
+        );
+        await workflow.checkpoint({ completed: true });
+        return result;
+    },
+};
+
+const runner = new WorkflowRunner(
+    {},
+    {},
+    { activities },
+);
+
+const run = await runner.start(definition, null);
 ```
 
-## Spike 发现（写给接入期的自己）
+`query()` 与 Action 一样进入 journal；replay 不会重新读取已经变化的外部状态。
+`now()` 和 `random()` 也进入 journal。Workflow 代码不应直接使用 `Date.now()` 或
+`Math.random()`。
 
-- **F1 · 内核比预想小**：journal 重放 + 分支路径上下文 + 挂起信号 + 锁，全部 ~250 行。复杂度都在语义决策（已在 Task 110 拍板），不在实现。
-- **F2 · SessionHandle 必须持显式游标**：append/invoke 锚定 handle 游标而非全局 active leaf。否则挂起期间用户直聊移动了 leaf，resume 重放会把后续写挂错位置。这条要写进接入合同。
-- **F3 · `wf.all` 必须收 thunk**：裸 `Promise.all([a(), b()])` 中两个分支在同一路径上争抢 seq，身份键随完成序漂移。接入 NeuroBook 后应在沙盒里把裸 Promise.all 列入 lint/黑名单，或注入受控替身。
-- **F4 · spike 只 journal 成功**：Activity 失败不落 journal，rerun 时重执行失败步骤。严格确定性（错误也重放）留给 V2；对"崩溃恢复不重跑已成功步骤"这个 V1 目标已够。
-- **F5 · 锁在挂起时释放是对的**：ask 可能等数天，锁死用户对话不可接受；resume 重放时 open/acquire 命中缓存也会重新加锁（锁是运行时态，不进 journal）。
-- **F6 · waiting 作为普通返回值的收益真实**：pipeline 场景里子代理反问 → wf.ask 转发 → followup 续跑，一共 6 行脚本。旧 sidecar 合同里这是父 run 直接失败。
-- **F7 · trace 投影几乎免费**：journal 自带路径结构，派生/汇合边一个正则就能重建。AST CFG 用 typescript 解析 `fn.toString()` 也够用（识别调用点 + if/for/map-fn 包裹标注），但确实只能 best-effort。
-- **F8 · directChat 与 workflow 写入靠 origin 区分**（`workflow` / `direct`），RP 测试证明混排后 transcript 语义仍清晰。接入时对应 entry 的 origin 字段扩展。
+## 等待与恢复
 
-## 与真实接入的差距（明确不在 spike 范围）
+Core 提供：
 
-沙盒化脚本执行（World Engine codeact-sandbox 路线）、journal 持久化为 session entry（`workflow_step` 族）、SSE 投影、waiting 向上穿透、harness 可重入（spike 里 invoke 天然可并发因为是 mock）、schema 校验（argsSchema/resultSchema）。
+```ts
+await workflow.waitForSignal("approval");
+await workflow.sleep(5_000);
+await workflow.startChildWorkflow(
+    "research.deep@1",
+    input,
+    { wait: true, cancelPolicy: "propagate" },
+);
+```
+
+- Signal consumption 绑定稳定 Activity idempotency key。
+- Timer 首次计算的 `dueAt` 在 replay 中保持不变。
+- Child Store 稳定绑定 parent Activity 与 child Run；实际调度和执行由宿主负责。
+- `MemorySignalStore`、`MemoryTimerStore` 和 `MemoryChildWorkflowStore` 只在当前
+  进程内保存状态。
+
+## ValueStore
+
+Activity output 小于 inline 上限时直接进入 journal；大值必须写入 ValueStore：
+
+```ts
+const runner = new WorkflowRunner(
+    {},
+    {},
+    {
+        values: new MemoryValueStore(),
+        inlineValueLimitBytes: 64 * 1024,
+    },
+);
+```
+
+journal 只保存：
+
+```ts
+type WorkflowValue =
+    | { kind: "inline"; value: JsonValue }
+    | { kind: "ref"; ref: ValueRef };
+```
+
+没有 ValueStore 且超过上限时，Run 会明确失败，不会把无界 payload 塞入 Backend。
+
+## Agent Extension
+
+Agent、Session、Workspace 和 Caller 不属于 Core `WorkflowContext`。需要这些能力时
+显式使用：
+
+```ts
+import type {
+    AgentWorkflowDefinition,
+    AgentWorkflowContext,
+} from "@notnotype/nb-workflow";
+```
+
+并向 Runner 注入 `SessionPort` 与 `AgentPort`。Caller 与默认模型会进入版本化
+Extension 启动上下文，可在另一个 Runner 上恢复。当前 Memory Agent 仅用于兼容
+既有拆书、写作、RP 和 sidecar 场景；真实 Harness Adapter 后置。
+
+## 开发与生产构建
+
+```text
+bun install --frozen-lockfile
+bun test
+bun run typecheck
+bun run verify:package
+```
+
+- 开发与测试使用 Bun。
+- `bun run build` 生成 bundled `dist/index.js` 和 TypeScript declarations。
+- `bun run verify:package` 额外运行 NodeNext declaration consumer 和纯 Node
+  import/execute smoke。
+- 生产消费者使用 Node.js 20+ 加载 `dist`。
+- 构建通过不等于可运行；Task 01 还使用纯 Node import/execute smoke 验证产物。
+
+## 当前明确限制
+
+- Memory Backend 不支持进程重启、多 Worker、lease、durable signal/timer 或
+  durable Child Workflow。
+- Kernel 只 journal 成功的 Activity；失败 Activity 在恢复时重新执行，宿主需要
+  按 idempotency key 提供安全重试。
+- Backend save 失败以 `WorkflowPersistenceError` reject，不伪装成业务
+  `failed`；`RunEnv.onEvent` 观察者失败也不会改变 Workflow 结果。
+- 本包不提供脚本沙箱、Graph UI、Worker queue、Redis、数据库 Adapter 或远程
+  Worker Gateway。
+- `startChildWorkflow()` 只定义稳定 binding/wait/result 语义，不在 Kernel 内启动
+  Worker。
+- Agent/Session 仍是兼容扩展，尚未接入 `neuro-agent-harness`。
+- Run 级 `workspace` 对象是进程内覆盖项；跨 Runner 恢复应由新 Runner 的
+  `RunEnv.workspace` 重新注入。
+
+实施记录见
+[`docs/tasks/01-kernel-stabilization/`](docs/tasks/01-kernel-stabilization/README.md)。

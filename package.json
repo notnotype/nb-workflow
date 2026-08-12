@@ -1,10 +1,29 @@
 {
     "name": "@notnotype/nb-workflow",
     "version": "0.1.0",
-    "description": "NeuroBook Agent Workflow 编排系统 spike：验证脚本式 durable-execution 核心 API（Task 110）",
+    "description": "Composable script-first Workflow Kernel with replay, optional durable backends, and host ports",
     "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "engines": {
+        "node": ">=20"
+    },
     "scripts": {
         "test": "bun test",
+        "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
+        "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+        "build": "bun run clean && bun build src/index.ts --outdir dist --target node --format esm --sourcemap=external && node node_modules/typescript/bin/tsc -p tsconfig.build.json && node scripts/fix-declaration-imports.mjs",
+        "verify:package": "bun run build && node node_modules/typescript/bin/tsc --noEmit --strict --skipLibCheck false --target ES2022 --module NodeNext --moduleResolution NodeNext scripts/package-consumer.mts && node scripts/node-smoke.mjs",
         "demo": "bun demo/generate.ts"
     },
     "devDependencies": {
