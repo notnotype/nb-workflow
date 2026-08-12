@@ -33,6 +33,7 @@ import {
     RunnerRunStore,
 } from "./runner-run-store";
 import {
+    archiveEphemeralSessions,
     bindExternalAbort,
     isTerminal,
     markCancelled,
@@ -134,6 +135,7 @@ export class WorkflowRunner {
             this.definitions,
             this.values,
             this.clock,
+            this.capabilities,
         );
     }
 
@@ -145,6 +147,25 @@ export class WorkflowRunner {
         assertJsonValue(args);
         if (options.budget !== undefined) {
             assertJsonValue(options.budget);
+        }
+        if (
+            options.callerSessionId !== undefined
+            && options.callerSessionId !== null
+            && !Number.isSafeInteger(options.callerSessionId)
+        ) {
+            throw new Error(
+                "Workflow callerSessionId must be a safe integer "
+                + "or null.",
+            );
+        }
+        if (
+            options.defaultModel !== undefined
+            && options.defaultModel !== null
+            && typeof options.defaultModel !== "string"
+        ) {
+            throw new Error(
+                "Workflow defaultModel must be a string or null.",
+            );
         }
         assertBackendCapabilities(
             this.capabilities,
@@ -161,6 +182,7 @@ export class WorkflowRunner {
             abortController,
             defaultModel: options.defaultModel ?? null,
             workspace: options.workspace ?? null,
+            ephemeralSessions: new Set(),
             status: "running",
             cancelRequestedAt: null,
             budget: options.budget === undefined
@@ -214,6 +236,9 @@ export class WorkflowRunner {
     ): Promise<RunView> {
         return await this.withControl(runId, async () => {
             const run = await this.runStore.loadRecord(runId);
+            if (this.inFlight.has(runId)) {
+                throw new Error(`run ${runId} 正在执行中`);
+            }
             if (run.status !== "waiting") {
                 throw new Error(
                     `run ${runId} 非 waiting 状态，当前为 ${run.status}`,
@@ -263,6 +288,20 @@ export class WorkflowRunner {
             if (run.status === "cancelled") {
                 throw new Error(`run ${runId} 已取消，不能 rerun`);
             }
+            if (
+                run.status === "waiting"
+                && run.pendingAsks.length > 0
+            ) {
+                throw new Error(
+                    `run ${runId} 等待用户应答，不能 rerun`,
+                );
+            }
+            if (
+                run.status === "running"
+                && !this.backend.capabilities.processRestart
+            ) {
+                throw new Error(`run ${runId} 正在执行，不能 rerun`);
+            }
             return await this.execute(run);
         });
     }
@@ -277,6 +316,9 @@ export class WorkflowRunner {
             validateSignalReference(reference);
             assertJsonValue(value);
             const run = await this.runStore.loadRecord(runId);
+            if (this.inFlight.has(runId)) {
+                throw new Error(`run ${runId} 正在执行中`);
+            }
             if (isTerminal(run)) {
                 throw new Error(
                     `run ${runId} 已终止，不能接收 signal ${reference}`,
@@ -303,6 +345,9 @@ export class WorkflowRunner {
     }
 
     async cancel(runId: string): Promise<RunView> {
+        // 取消必须即时打断执行中的 Activity，因此不能放入 withControl
+        // （执行中 rerun/signal 持有控制权时取消会永远等不到）；
+        // 持久化走 run.persistence 链与执行尾部串行，事件在持久化后发出。
         const run = await this.runStore.loadRecord(runId);
         if (isTerminal(run)) {
             return runRecordToView(run);
@@ -312,18 +357,24 @@ export class WorkflowRunner {
         run.abortController.abort(new WorkflowCancelledError());
         await this.children.cancelForParent(run.runId);
         if (run.status === "waiting") {
+            await archiveEphemeralSessions(
+                run,
+                this.ports,
+            ).catch(() => undefined);
             run.status = "cancelled";
             run.error = "workflow run 被取消";
             run.pendingAsks = [];
             run.pendingWaits = [];
             unbindExternalAbort(run);
+        }
+        await this.persist(run);
+        if (run.status === "cancelled") {
             emitWorkflowEvent(this.env, {
                 type: "status",
                 runId: run.runId,
                 status: run.status,
             });
         }
-        await this.persist(run);
         return runRecordToView(run);
     }
 

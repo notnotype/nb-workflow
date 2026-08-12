@@ -4,14 +4,17 @@ import {
     MemoryActivityExecutor,
     MemoryDefinitionRegistry,
     MemorySessionStore,
+    MemorySignalStore,
     MemoryValueStore,
     MemoryWorkflowBackend,
     MockAgentPort,
     WorkflowBackendCapabilityError,
     WorkflowRunner,
     createMemoryWorkspace,
+    memoryBackendCapabilities,
 } from "../src/index";
 import type {
+    AgentWorkflowContext,
     AgentWorkflowDefinition as WorkflowDefinition,
     AgentPort,
     JsonValue,
@@ -400,9 +403,9 @@ describe("WorkflowRunner Backend integration", () => {
         await Promise.resolve();
         release();
 
-        await expect(done).resolves.toMatchObject({
-            status: "cancelled",
-        });
+        await expect(done).rejects.toThrow(
+            "simulated Backend outage on save 2",
+        );
         expect(events).toContainEqual({
             type: "control_error",
             runId: expect.any(String),
@@ -768,6 +771,554 @@ describe("WorkflowRunner Backend integration", () => {
         releaseSecond();
         await expect(rerun).resolves.toMatchObject({ status: "completed" });
     });
+
+    test("rerun rejects a waiting Run instead of discarding pending asks", async () => {
+        const backend = new MemoryWorkflowBackend();
+        const definitions = new MemoryDefinitionRegistry();
+        const runner = new WorkflowRunner(
+            {},
+            {},
+            { backend, definitions },
+        );
+        const waiting = await runner.start({
+            key: "rerun-waiting",
+            manifestHash: "sha256:rerun-waiting-v1",
+            run: async (workflow: WorkflowContext) => await workflow.ask({
+                kind: "text",
+                title: "answer",
+            }),
+        }, null);
+        expect(waiting.status).toBe("waiting");
+
+        await expect(runner.rerun(waiting.runId)).rejects.toThrow(
+            /等待用户应答/,
+        );
+        expect(runner.view(waiting.runId)).toMatchObject({
+            status: "waiting",
+            pendingAsks: [{ spec: { title: "answer" } }],
+        });
+    });
+
+    test("rerun rejects a running Run when the Backend has no processRestart capability", async () => {
+        const backend = new MemoryWorkflowBackend();
+        const definitions = new MemoryDefinitionRegistry();
+        const activities = new MemoryActivityExecutor();
+        let markStarted!: () => void;
+        let release!: () => void;
+        const started = new Promise<void>((resolve) => {
+            markStarted = resolve;
+        });
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const releaseTimer = setTimeout(release, 1_000);
+        activities.registerAction("rerun-running.wait@1", async () => {
+            markStarted();
+            await gate;
+            return null;
+        });
+        const first = new WorkflowRunner(
+            {},
+            {},
+            { backend, definitions, activities },
+        );
+        const { runId, done } = first.begin({
+            key: "rerun-running",
+            manifestHash: "sha256:rerun-running-v1",
+            run: async (workflow: WorkflowContext) =>
+                await workflow.callAction(
+                "rerun-running.wait@1",
+                {},
+            ),
+        }, null);
+        await started;
+
+        const second = new WorkflowRunner(
+            {},
+            {},
+            { backend, definitions, activities },
+        );
+        await expect(second.rerun(runId)).rejects.toThrow(
+            /正在执行/,
+        );
+
+        release();
+        clearTimeout(releaseTimer);
+        await expect(done).resolves.toMatchObject({
+            status: "completed",
+        });
+        expect(await backend.loadRun(runId)).toMatchObject({
+            status: "completed",
+        });
+    });
+
+    test("rerun allows a running Run when the Backend declares processRestart", async () => {
+        const backend = new ProcessRestartWorkflowBackend();
+        const definitions = new MemoryDefinitionRegistry();
+        const activities = new MemoryActivityExecutor();
+        let markStarted!: () => void;
+        let release!: () => void;
+        const started = new Promise<void>((resolve) => {
+            markStarted = resolve;
+        });
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const releaseTimer = setTimeout(release, 1_000);
+        activities.registerAction("rerun-restart.echo@1", (input) => {
+            markStarted();
+            return (async () => {
+                await gate;
+                return input;
+            })();
+        });
+        const definition = {
+            key: "rerun-process-restart",
+            manifestHash: "sha256:rerun-process-restart-v1",
+            run: async (workflow: WorkflowContext) =>
+                await workflow.callAction(
+                "rerun-restart.echo@1",
+                { value: 1 },
+            ),
+        };
+        const first = new WorkflowRunner(
+            {},
+            {},
+            { backend, definitions, activities },
+        );
+        const { runId, done } = first.begin(definition, null);
+        await started;
+
+        const second = new WorkflowRunner(
+            {},
+            {},
+            { backend, definitions, activities },
+        );
+        const recovered = await second.rerun(runId);
+
+        expect(recovered).toMatchObject({
+            status: "completed",
+            result: { value: 1 },
+        });
+        release();
+        clearTimeout(releaseTimer);
+        await done.catch(() => undefined);
+    });
+
+    test("checkpoint projection is deterministic across concurrent branches and replay", async () => {
+        const backend = new MemoryWorkflowBackend();
+        const definitions = new MemoryDefinitionRegistry();
+        let gateResolve!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            gateResolve = resolve;
+        });
+        let markStarted!: () => void;
+        const started = new Promise<void>((resolve) => {
+            markStarted = resolve;
+        });
+        let firstRun = true;
+        const definition = {
+            key: "deterministic-checkpoint",
+            manifestHash: "sha256:deterministic-checkpoint-v1",
+            run: async (workflow: AgentWorkflowContext) => {
+                if (firstRun) {
+                    markStarted();
+                }
+                await workflow.map([0, 1], async (item) => {
+                    if (firstRun && item === 0) {
+                        await gate;
+                    }
+                    await workflow.checkpoint({ item });
+                });
+                return null;
+            },
+        };
+        const runner = new WorkflowRunner(
+            {},
+            {},
+            { backend, definitions },
+        );
+        const { runId, done } = runner.begin(definition, null);
+        await started;
+        gateResolve();
+        const first = await done;
+        firstRun = false;
+
+        const rerun = await runner.rerun(runId);
+
+        expect(first.checkpoint).toMatchObject({
+            kind: "inline",
+            value: { item: 1 },
+        });
+        expect(rerun.checkpoint).toMatchObject({
+            kind: "inline",
+            value: { item: 1 },
+        });
+        expect(first.checkpoint).toEqual(rerun.checkpoint);
+    });
+
+    test("ephemeral sessions are archived on failed and cancelled runs", async () => {
+        const sessions = new MemorySessionStore();
+        const runner = new WorkflowRunner({
+            sessions,
+            agents: new MockAgentPort(sessions),
+        });
+        const failDefinition = {
+            key: "ephemeral-fail",
+            manifestHash: "sha256:ephemeral-fail-v1",
+            run: async (workflow: AgentWorkflowContext) => {
+                await workflow.agents.create(
+                    "profile",
+                    { ephemeral: true },
+                );
+                throw new Error("boom");
+            },
+        };
+        const failed = await runner.start(failDefinition, null);
+        expect(failed.status).toBe("failed");
+        expect((await sessions.meta(1)).archived).toBe(true);
+
+        const cancelDefinition = {
+            key: "ephemeral-cancel",
+            manifestHash: "sha256:ephemeral-cancel-v1",
+            run: async (workflow: AgentWorkflowContext) => {
+                await workflow.agents.create(
+                    "profile",
+                    { ephemeral: true },
+                );
+                await workflow.ask({
+                    kind: "approve",
+                    title: "continue?",
+                });
+                return null;
+            },
+        };
+        const waiting = await runner.start(cancelDefinition, null);
+        expect(waiting.status).toBe("waiting");
+        expect((await sessions.meta(2)).archived).toBe(false);
+
+        await runner.cancel(waiting.runId);
+        expect((await sessions.meta(2)).archived).toBe(true);
+    });
+
+    test("agents.invoke options are whitelisted before reaching the AgentPort", async () => {
+        const sessions = new MemorySessionStore();
+        const received: unknown[] = [];
+        const agents: AgentPort = {
+            async profileInfo() {
+                return {};
+            },
+            async invoke(_sessionId, _fromLeaf, options) {
+                received.push(options);
+                return {
+                    status: "completed",
+                    message: "ok",
+                    data: null,
+                    newLeaf: null,
+                };
+            },
+        };
+        const runner = new WorkflowRunner(
+            { sessions, agents },
+            {},
+            {},
+        );
+        const definition = {
+            key: "invoke-whitelist",
+            manifestHash: "sha256:invoke-whitelist-v1",
+            run: async (workflow: AgentWorkflowContext) => {
+                const handle = await workflow.agents.create("profile");
+                return await handle.invoke({
+                    message: "hello",
+                    hidden: "must not leak",
+                } as never);
+            },
+        };
+
+        const completed = await runner.start(definition, null);
+
+        expect(completed.status).toBe("completed");
+        expect(received).toHaveLength(1);
+        expect(received[0]).toEqual({
+            mode: "prompt",
+            message: "hello",
+            input: null,
+            signal: expect.any(AbortSignal),
+        });
+    });
+
+    test("concurrent acquire of the same tag creates a single session", async () => {
+        const sessions = new MemorySessionStore();
+        const agents = new MockAgentPort(sessions);
+        const runner = new WorkflowRunner(
+            { sessions, agents },
+            {},
+            {},
+        );
+        const definition = {
+            key: "acquire-atomic",
+            manifestHash: "sha256:acquire-atomic-v1",
+            run: async (workflow: AgentWorkflowContext) => {
+                const results = await workflow.all([
+                    () => workflow.agents.acquire({
+                        profileKey: "rp",
+                        tag: "leader",
+                    }).then((handle) => handle.id),
+                    () => workflow.agents.acquire({
+                        profileKey: "rp",
+                        tag: "leader",
+                    }).then((handle) => handle.id),
+                ]);
+                return results;
+            },
+        };
+
+        const completed = await runner.start(definition, null);
+
+        expect(completed.status).toBe("completed");
+        expect(completed.result).toHaveLength(2);
+        expect((completed.result as number[])[0]).toBe(
+            (completed.result as number[])[1],
+        );
+    });
+
+    test("a workflow cannot swallow a persistence failure into a completed run", async () => {
+        const backend = new FailOnNthSaveWorkflowBackend(2);
+        const activities = new MemoryActivityExecutor();
+        activities.registerAction("swallow.echo@1", (input) => input);
+        const runner = new WorkflowRunner(
+            {},
+            {},
+            { backend, activities },
+        );
+        const { runId, done } = runner.begin({
+            key: "poisoned-swallow",
+            manifestHash: "sha256:poisoned-swallow-v1",
+            run: async (workflow: WorkflowContext) => {
+                try {
+                    return await workflow.callAction(
+                        "swallow.echo@1",
+                        { value: 1 },
+                    );
+                } catch {
+                    return { caught: true };
+                }
+            },
+        }, null);
+
+        await expect(done).rejects.toThrow(
+            "simulated Backend outage on save 2",
+        );
+        expect(await backend.loadRun(runId)).toMatchObject({
+            status: "running",
+            error: undefined,
+        });
+    });
+
+    test("begin validates callerSessionId and defaultModel synchronously", () => {
+        const runner = new WorkflowRunner({});
+        const definition = {
+            key: "begin-validation",
+            manifestHash: "sha256:begin-validation-v1",
+            run: async () => null,
+        };
+
+        expect(() => runner.begin(
+            definition,
+            null,
+            { callerSessionId: "not-a-number" as never },
+        )).toThrow(/callerSessionId/);
+        expect(() => runner.begin(
+            definition,
+            null,
+            { defaultModel: 42 as never },
+        )).toThrow(/defaultModel/);
+    });
+
+    test("control paths re-assert Backend requirements after hydration", async () => {
+        const capabilities = {
+            ...memoryBackendCapabilities,
+            durability: "durable" as const,
+            processRestart: true,
+            durableSignals: true,
+        };
+        const backend = new MutableCapabilitiesBackend(capabilities);
+        const definitions = new MemoryDefinitionRegistry();
+        const signals = new MemorySignalStore();
+        const definition = {
+            key: "requires-recheck",
+            manifestHash: "sha256:requires-recheck-v1",
+            requires: { durableSignals: true },
+            run: async (workflow: WorkflowContext) => await workflow.ask({
+                kind: "approve",
+                title: "continue?",
+            }),
+        };
+        const first = new WorkflowRunner(
+            {},
+            {},
+            { backend, definitions, signals },
+        );
+        const waiting = await first.start(definition, null);
+        expect(waiting.status).toBe("waiting");
+
+        capabilities.durableSignals = false;
+        const second = new WorkflowRunner(
+            {},
+            {},
+            { backend, definitions, signals },
+        );
+        await expect(second.resume(waiting.runId, {
+            [waiting.pendingAsks[0]!.key]: true,
+        })).rejects.toBeInstanceOf(WorkflowBackendCapabilityError);
+    });
+
+    test("ask replay decode honors a cancellation during ValueStore read", async () => {
+        const backend = new MemoryWorkflowBackend();
+        const definitions = new MemoryDefinitionRegistry();
+        const values = new BlockingValueStore();
+        const bigAnswer = "very-large-answer-".repeat(20);
+        const definition = {
+            key: "ask-cancel-decode",
+            manifestHash: "sha256:ask-cancel-decode-v1",
+            run: async (workflow: WorkflowContext) => {
+                const answer = await workflow.ask({
+                    kind: "text",
+                    title: "question",
+                });
+                workflow.log("after-ask");
+                return answer;
+            },
+        };
+        const runner = new WorkflowRunner(
+            {},
+            {},
+            {
+                backend,
+                definitions,
+                values,
+                inlineValueLimitBytes: 4,
+            },
+        );
+        const waiting = await runner.start(definition, null);
+        const answerKey = waiting.pendingAsks[0]!.key;
+
+        const resume = runner.resume(waiting.runId, {
+            [answerKey]: bigAnswer,
+        });
+        await values.putStarted;
+        values.releasePut();
+        await expect(resume).resolves.toMatchObject({
+            status: "completed",
+        });
+
+        values.gateNextGet = true;
+        const rerun = runner.rerun(waiting.runId);
+        await values.getStarted;
+        await runner.cancel(waiting.runId);
+        values.releaseGet();
+        await expect(rerun).resolves.toMatchObject({
+            status: "cancelled",
+            logs: [],
+        });
+    });
+
+    test("view and loadView stay consistent after a persistence failure", async () => {
+        const backend = new FailOnNthSaveWorkflowBackend(2);
+        const activities = new MemoryActivityExecutor();
+        activities.registerAction("view-consistency.echo@1", (input) => input);
+        const runner = new WorkflowRunner(
+            {},
+            {},
+            { backend, activities },
+        );
+        const { runId, done } = runner.begin({
+            key: "view-consistency",
+            manifestHash: "sha256:view-consistency-v1",
+            run: async (workflow: WorkflowContext) => await workflow.callAction(
+                "view-consistency.echo@1",
+                { value: 1 },
+            ),
+        }, null);
+
+        await expect(done).rejects.toThrow(
+            "simulated Backend outage on save 2",
+        );
+
+        const localView = runner.view(runId);
+        const storedView = await runner.loadView(runId);
+        expect(localView.status).toBe(storedView.status);
+        expect(localView.revision).toBe(storedView.revision);
+        expect(localView.journal).toEqual(storedView.journal);
+    });
+
+    test("a cancelled status event is emitted only after persistence", async () => {
+        const backend = new PausableMemoryWorkflowBackend();
+        const definitions = new MemoryDefinitionRegistry();
+        const events: WorkflowEvent[] = [];
+        const runner = new WorkflowRunner(
+            {},
+            { onEvent: (event) => events.push(event) },
+            { backend, definitions },
+        );
+        const waiting = await runner.start({
+            key: "cancel-event-order",
+            manifestHash: "sha256:cancel-event-order-v1",
+            run: async (workflow: WorkflowContext) => await workflow.ask({
+                kind: "approve",
+                title: "continue?",
+            }),
+        }, null);
+        expect(waiting.status).toBe("waiting");
+
+        const pause = backend.pauseNextSave();
+        const cancellation = runner.cancel(waiting.runId);
+        await pause.started;
+        expect(events).not.toContainEqual({
+            type: "status",
+            runId: waiting.runId,
+            status: "cancelled",
+        });
+        pause.release();
+
+        await cancellation;
+        expect(events).toContainEqual({
+            type: "status",
+            runId: waiting.runId,
+            status: "cancelled",
+        });
+    });
+
+    test("resume rejects while the waiting terminal persist is settling", async () => {
+        const backend = new PausableMemoryWorkflowBackend();
+        const definitions = new MemoryDefinitionRegistry();
+        const runner = new WorkflowRunner(
+            {},
+            {},
+            { backend, definitions },
+        );
+        const { runId, done } = runner.begin({
+            key: "resume-settling",
+            manifestHash: "sha256:resume-settling-v1",
+            run: async (workflow: WorkflowContext) => await workflow.ask({
+                kind: "text",
+                title: "answer",
+            }),
+        }, null);
+        const pause = backend.pauseSaveCount(3);
+        const settling = done.then(
+            (view) => ({ status: view.status }),
+            () => ({ status: "rejected" }),
+        );
+        await pause.started;
+
+        await expect(runner.resume(runId, {
+            "root#0": "answer",
+        })).rejects.toThrow(/正在执行/);
+
+        pause.release();
+        await expect(settling).resolves.toEqual({ status: "waiting" });
+    });
 });
 
 class PausableMemoryWorkflowBackend extends MemoryWorkflowBackend {
@@ -777,6 +1328,12 @@ class PausableMemoryWorkflowBackend extends MemoryWorkflowBackend {
             wait: Promise<void>;
         }
         | undefined;
+    private pauseAtCount: {
+        count: number;
+        started: () => void;
+        wait: Promise<void>;
+    } | undefined;
+    private saveCount = 0;
 
     pauseNextSave(): {
         started: Promise<void>;
@@ -797,10 +1354,37 @@ class PausableMemoryWorkflowBackend extends MemoryWorkflowBackend {
         return { started, release };
     }
 
+    pauseSaveCount(count: number): {
+        started: Promise<void>;
+        release(): void;
+    } {
+        let markStarted!: () => void;
+        let release!: () => void;
+        const started = new Promise<void>((resolve) => {
+            markStarted = resolve;
+        });
+        const wait = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        this.pauseAtCount = {
+            count,
+            started: markStarted,
+            wait,
+        };
+        return { started, release };
+    }
+
     override async saveRun(
         next: WorkflowRunState,
         expectedRevision: number,
     ): Promise<WorkflowRunState> {
+        this.saveCount += 1;
+        const atCount = this.pauseAtCount;
+        if (atCount && this.saveCount === atCount.count) {
+            this.pauseAtCount = undefined;
+            atCount.started();
+            await atCount.wait;
+        }
         const pause = this.pause;
         if (pause) {
             this.pause = undefined;
@@ -834,6 +1418,26 @@ class PausableCreateMemoryWorkflowBackend extends MemoryWorkflowBackend {
     }
 }
 
+class ProcessRestartWorkflowBackend extends MemoryWorkflowBackend {
+    override readonly capabilities = {
+        ...memoryBackendCapabilities,
+        processRestart: true,
+    };
+}
+
+class MutableCapabilitiesBackend extends MemoryWorkflowBackend {
+    constructor(capabilities: typeof memoryBackendCapabilities & {
+        durability: "durable";
+        processRestart: boolean;
+        durableSignals: boolean;
+    }) {
+        super();
+        this.capabilities = capabilities;
+    }
+
+    override capabilities: typeof memoryBackendCapabilities;
+}
+
 class FailOnSaveWorkflowBackend extends MemoryWorkflowBackend {
     override async saveRun(): Promise<WorkflowRunState> {
         throw new Error("simulated Backend outage");
@@ -863,6 +1467,7 @@ class FailOnNthSaveWorkflowBackend extends MemoryWorkflowBackend {
 
 class BlockingValueStore implements ValueStore {
     private readonly delegate = new MemoryValueStore();
+    gateNextGet = false;
     private markPutStarted!: () => void;
     private release!: () => void;
     readonly putStarted = new Promise<void>((resolve) => {
@@ -871,9 +1476,21 @@ class BlockingValueStore implements ValueStore {
     private readonly putGate = new Promise<void>((resolve) => {
         this.release = resolve;
     });
+    private markGetStarted!: () => void;
+    private releaseGetValue!: () => void;
+    readonly getStarted = new Promise<void>((resolve) => {
+        this.markGetStarted = resolve;
+    });
+    private readonly getGate = new Promise<void>((resolve) => {
+        this.releaseGetValue = resolve;
+    });
 
     releasePut(): void {
         this.release();
+    }
+
+    releaseGet(): void {
+        this.releaseGetValue();
     }
 
     async put(value: JsonValue): Promise<ValueRef> {
@@ -883,6 +1500,10 @@ class BlockingValueStore implements ValueStore {
     }
 
     async get(reference: ValueRef): Promise<JsonValue> {
+        if (this.gateNextGet) {
+            this.markGetStarted();
+            await this.getGate;
+        }
         return await this.delegate.get(reference);
     }
 }

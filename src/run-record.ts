@@ -27,6 +27,8 @@ export type RunRecord = {
     removeExternalAbort?: () => void;
     defaultModel: string | null;
     workspace: WorkspacePort | null;
+    /** 本进程内待归档的 ephemeral Session；waiting 挂起时保留，终态归档后清空。 */
+    ephemeralSessions: Set<SessionId>;
     status: RunStatus;
     cancelRequestedAt: string | null;
     budget: JsonValue | null;
@@ -45,6 +47,8 @@ export type RunRecord = {
     /** 首次 createRun 完成后才允许后续 CAS save。 */
     initialization: Promise<void>;
     persistence: Promise<void>;
+    /** 持久化失败后保存首次原因：后续 save 直接拒绝，阻止业务成功与 journal 分叉。 */
+    persistencePoisoned?: unknown;
 };
 
 export function runRecordToView(run: RunRecord): RunView {

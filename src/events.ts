@@ -71,8 +71,30 @@ export class MemoryEventSink implements EventSink {
 export function validateWorkflowEvent(
     event: WorkflowEventEnvelope,
 ): WorkflowEventEnvelope {
-    if (!event.type.trim() || !event.version.trim()) {
-        throw new Error("Workflow events require non-empty type and version.");
+    if (
+        event === null
+        || typeof event !== "object"
+        || Array.isArray(event)
+    ) {
+        throw new Error(
+            "Workflow events must be an event envelope object.",
+        );
+    }
+    if (
+        typeof event.type !== "string"
+        || !event.type.trim()
+    ) {
+        throw new Error(
+            "Workflow events require a non-empty string type.",
+        );
+    }
+    if (
+        typeof event.version !== "string"
+        || !event.version.trim()
+    ) {
+        throw new Error(
+            "Workflow events require a non-empty string version.",
+        );
     }
     return structuredClone(event);
 }

@@ -102,7 +102,9 @@ class Handle implements SessionHandle {
                 this.id,
                 parent,
                 {
-                    ...options,
+                    mode: options.mode ?? "prompt",
+                    message: options.message ?? null,
+                    input: options.input ?? null,
                     signal: this.runtime.signal,
                 },
             ) as unknown as JsonValue,
@@ -258,7 +260,7 @@ async function createAgentSession(
         },
     ) as { sessionId: SessionId };
     if (options.ephemeral) {
-        runtime.exec.ephemeral.add(output.sessionId);
+        runtime.run.ephemeralSessions.add(output.sessionId);
     }
     await runtime.lock(output.sessionId);
     return new Handle(
@@ -287,34 +289,16 @@ async function acquireAgentSession(
             parent: parent?.id ?? null,
         },
         async () => {
-            const found = await sessions.findByTag(
+            return await sessions.acquireByTag({
                 profileKey,
                 tag,
-            );
-            if (found) {
-                return {
-                    sessionId: found.sessionId,
-                    leafId: await sessions.activeLeaf(
-                        found.sessionId,
-                    ),
-                    created: false,
-                };
-            }
-            const metadata = await sessions.createSession({
-                profileKey,
-                kind: "chat",
-                tags: [tag],
                 parentSessionId: parent?.id,
             });
-            return {
-                sessionId: metadata.sessionId,
-                leafId: null,
-                created: true,
-            };
         },
     ) as {
         sessionId: SessionId;
         leafId: EntryId | null;
+        created: boolean;
     };
     await runtime.lock(output.sessionId);
     return new Handle(

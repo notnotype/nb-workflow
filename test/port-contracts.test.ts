@@ -14,6 +14,7 @@ import {
 import type {
     ActivityExecutionContext,
     BackendCapabilities,
+    WorkflowContext,
     WorkflowDefinition,
 } from "../src/index";
 
@@ -140,6 +141,71 @@ describe("stable Port contracts", () => {
         expect(() => runner.begin(required, null)).toThrow(
             WorkflowBackendCapabilityError,
         );
+    });
+
+    test("every capability intersection rejects without its Port", () => {
+        const backend = new MemoryWorkflowBackend();
+        Object.defineProperty(backend, "capabilities", {
+            value: {
+                ...backend.capabilities,
+                durability: "durable",
+                processRestart: true,
+                durableSignals: true,
+                durableTimers: true,
+                childWorkflows: true,
+                externalReceipts: true,
+                outbox: true,
+            } satisfies BackendCapabilities,
+        });
+        const runner = new WorkflowRunner(
+            {},
+            {},
+            { backend },
+        );
+
+        for (const requirement of [
+            { durableTimers: true },
+            { childWorkflows: true },
+            { externalReceipts: true },
+            { outbox: true },
+        ] as const) {
+            expect(() => runner.begin({
+                key: "requires-port",
+                manifestHash: "sha256:requires-port-v1",
+                requires: requirement,
+                run: async () => null,
+            }, null)).toThrow(WorkflowBackendCapabilityError);
+        }
+    });
+
+    test("ask specs are validated before entering the pending projection", async () => {
+        const runner = new WorkflowRunner({});
+        const failed = await runner.start({
+            key: "invalid-ask-spec",
+            manifestHash: "sha256:invalid-ask-spec-v1",
+            run: async (workflow: WorkflowContext) => await workflow.ask({
+                kind: "evil-kind",
+                title: "question",
+            } as never),
+        }, null);
+
+        expect(failed.status).toBe("failed");
+        expect(failed.error).toContain("ask");
+    });
+
+    test("emit rejects non-envelope values with a structured error", async () => {
+        const runner = new WorkflowRunner({});
+        const failed = await runner.start({
+            key: "invalid-emit",
+            manifestHash: "sha256:invalid-emit-v1",
+            run: async (workflow: WorkflowContext) => {
+                await workflow.emit(null as never);
+                return null;
+            },
+        }, null);
+
+        expect(failed.status).toBe("failed");
+        expect(failed.error).toContain("Workflow events");
     });
 });
 

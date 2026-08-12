@@ -128,14 +128,14 @@ export function unbindExternalAbort(run: RunRecord): void {
 }
 
 export async function archiveEphemeralSessions(
-    execution: ExecutionState,
+    run: RunRecord,
     ports: {
         sessions?: {
             archive(sessionId: SessionId): Promise<void>;
         };
     },
 ): Promise<void> {
-    if (execution.ephemeral.size === 0) {
+    if (run.ephemeralSessions.size === 0) {
         return;
     }
     if (!ports.sessions) {
@@ -143,7 +143,8 @@ export async function archiveEphemeralSessions(
             "Agent Session extension disappeared during execution.",
         );
     }
-    for (const sessionId of execution.ephemeral) {
+    for (const sessionId of run.ephemeralSessions) {
         await ports.sessions.archive(sessionId);
     }
+    run.ephemeralSessions.clear();
 }

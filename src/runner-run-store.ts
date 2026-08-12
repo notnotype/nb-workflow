@@ -1,4 +1,7 @@
-import type { WorkflowBackend } from "./backend";
+import {
+    assertBackendCapabilities,
+    type WorkflowBackend,
+} from "./backend";
 import { readAgentExtensionContext } from "./agent-run-context";
 import type { DefinitionRegistry } from "./ports";
 import {
@@ -13,6 +16,7 @@ import type {
     Clock,
 } from "./ports";
 import type {
+    BackendCapabilities,
     JsonValue,
     RunView,
     WorkflowRunState,
@@ -43,6 +47,7 @@ export class RunnerRunStore {
         private readonly definitions: DefinitionRegistry,
         private readonly values: WorkflowValueCodec,
         private readonly clock: Clock,
+        private readonly capabilities: BackendCapabilities,
     ) {}
 
     add(run: RunRecord): void {
@@ -104,12 +109,22 @@ export class RunnerRunStore {
             throw new Error(`run ${runId} 不存在`);
         }
         const run = await this.hydrate(state);
+        assertBackendCapabilities(
+            this.capabilities,
+            run.def.requires,
+        );
         this.records.set(runId, run);
         return run;
     }
 
     async persist(run: RunRecord): Promise<void> {
         await run.initialization;
+        if (run.persistencePoisoned) {
+            throw new WorkflowPersistenceError(
+                run.runId,
+                run.persistencePoisoned,
+            );
+        }
         const operation = run.persistence.then(async () => {
             run.updatedAt = this.clock.now().toISOString();
             const stored = await this.backend.saveRun(
@@ -123,7 +138,9 @@ export class RunnerRunStore {
         try {
             await operation;
         } catch (error) {
-            this.records.delete(run.runId);
+            run.persistencePoisoned = error;
+            // 保留本地投影：view()/loadView() 保持一致地返回最后已知
+            // 快照，后续 persist 由 poisoned 标志直接拒绝。
             unbindExternalAbort(run);
             throw error instanceof WorkflowPersistenceError
                 ? error
@@ -157,6 +174,7 @@ export class RunnerRunStore {
             abortController,
             defaultModel: agentContext.defaultModel,
             workspace: null,
+            ephemeralSessions: new Set(),
             status: state.status,
             cancelRequestedAt: state.cancelRequestedAt,
             budget: structuredClone(state.budget),

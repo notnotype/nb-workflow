@@ -55,7 +55,6 @@ const branchContext = new AsyncLocalStorage<{ path: string }>();
 export class ExecutionState {
     readonly counters = new Map<string, number>();
     readonly dirtyFrom = new Map<string, number>();
-    readonly ephemeral = new Set<SessionId>();
 
     nextSeq(path: string): number {
         const seq = this.counters.get(path) ?? 0;
@@ -172,6 +171,7 @@ export class Runtime {
     }
 
     async askActivity(spec: AskSpec): Promise<JsonValue> {
+        validateAskSpec(spec);
         this.assertRunning();
         const path = this.path();
         const seq = this.exec.nextSeq(path);
@@ -190,7 +190,9 @@ export class Runtime {
                     record: cached,
                     cached: true,
                 });
-                return await this.values.decode(cached.result);
+                const value = await this.values.decode(cached.result);
+                this.assertRunning();
+                return value;
             }
             this.exec.dirtyFrom.set(path, seq);
             this.invalidateSuffix(path, seq);
@@ -285,6 +287,14 @@ export class Runtime {
                     options: normalized,
                     context,
                 });
+                if (this.run.abortRequested) {
+                    // start 是异步宿主调用：取消可能发生在记录落库之前，
+                    // 需要按 parent 补扫一次，避免留下 propagate 孤儿。
+                    await this.children.cancelForParent(
+                        this.run.runId,
+                    );
+                    throw new WorkflowCancelledError();
+                }
                 if (result.status === "running") {
                     if (!normalized.wait) {
                         return {
@@ -356,6 +366,68 @@ export class Runtime {
                 || descendantSequence(record.path, path) >= sequence
             ) {
                 this.run.journal.delete(key);
+            }
+        }
+    }
+}
+
+function validateAskSpec(spec: AskSpec): void {
+    if (
+        spec === null
+        || typeof spec !== "object"
+        || Array.isArray(spec)
+    ) {
+        throw new Error("Workflow ask spec must be an object.");
+    }
+    const allowedKinds = new Set(["select", "text", "approve"]);
+    if (
+        typeof spec.kind !== "string"
+        || !allowedKinds.has(spec.kind)
+    ) {
+        throw new Error(
+            "Workflow ask kind must be one of select, text or approve.",
+        );
+    }
+    if (
+        typeof spec.title !== "string"
+        || !spec.title.trim()
+    ) {
+        throw new Error(
+            "Workflow ask title must be a non-empty string.",
+        );
+    }
+    if (
+        spec.description !== undefined
+        && typeof spec.description !== "string"
+    ) {
+        throw new Error(
+            "Workflow ask description must be a string.",
+        );
+    }
+    if (
+        spec.multi !== undefined
+        && typeof spec.multi !== "boolean"
+    ) {
+        throw new Error("Workflow ask multi must be a boolean.");
+    }
+    if (spec.options !== undefined) {
+        if (!Array.isArray(spec.options)) {
+            throw new Error(
+                "Workflow ask options must be an array.",
+            );
+        }
+        for (const option of spec.options) {
+            if (
+                option === null
+                || typeof option !== "object"
+                || typeof option.id !== "string"
+                || !option.id.trim()
+                || typeof option.label !== "string"
+            ) {
+                throw new Error(
+                    "Workflow ask options require non-empty id "
+                    + "and label strings.",
+                );
             }
         }
     }

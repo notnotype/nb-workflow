@@ -161,7 +161,8 @@ readonly WorkflowBackendConformanceCase[] = [
 
 /**
  * Backend 与 Kernel 的组合门禁。Cosmos Prisma Backend 可以直接传入自己的
- * factory；测试只使用通用 Activity/Definition Port。
+ * factory；Activity/Definition 使用 Memory 实现，宿主需要为 durable 重放与
+ * manifest 解析自带测试。
  */
 export const workflowRunnerBackendConformanceCases:
 readonly WorkflowBackendConformanceCase[] = [

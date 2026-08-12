@@ -46,6 +46,19 @@ export interface SessionPort {
     meta(sessionId: SessionId): Promise<SessionMeta>;
     /** 持久参与者寻址：按 (profileKey, tag) 找未归档 session；没有返回 null */
     findByTag(profileKey: string, tag: string): Promise<SessionMeta | null>;
+    /**
+     * 原子 find-or-create：并发调用同一 (profileKey, tag) 必须恰好创建一个
+     * session。宿主 adapter 必须保证该组合的原子性，不能先 find 再 create。
+     */
+    acquireByTag(init: {
+        profileKey: string;
+        tag: string;
+        parentSessionId?: SessionId;
+    }): Promise<{
+        sessionId: SessionId;
+        leafId: EntryId | null;
+        created: boolean;
+    }>;
     activeLeaf(sessionId: SessionId): Promise<EntryId | null>;
     setActiveLeaf(sessionId: SessionId, entryId: EntryId): Promise<void>;
     append(sessionId: SessionId, parentId: EntryId | null, entry: {

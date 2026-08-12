@@ -109,7 +109,7 @@ await workflow.waitForSignal("approval");
 await workflow.sleep(5_000);
 await workflow.startChildWorkflow(
     "research.deep@1",
-    input,
+    { topic: "DeepSeek outage" },
     { wait: true, cancelPolicy: "propagate" },
 );
 ```
@@ -119,6 +119,10 @@ await workflow.startChildWorkflow(
 - Child Store 稳定绑定 parent Activity 与 child Run；实际调度和执行由宿主负责。
 - `MemorySignalStore`、`MemoryTimerStore` 和 `MemoryChildWorkflowStore` 只在当前
   进程内保存状态。
+
+等待恢复：`rerun` 只允许 `failed`/`completed` 状态，以及"没有未应答 ask"的
+`waiting`（timer/child 等待的宿主恢复入口）；带未应答 ask 的 waiting 与
+running（除非 Backend 声明 `processRestart`）都会被拒绝。
 
 ## ValueStore
 
@@ -161,6 +165,10 @@ import type {
 Extension 启动上下文，可在另一个 Runner 上恢复。当前 Memory Agent 仅用于兼容
 既有拆书、写作、RP 和 sidecar 场景；真实 Harness Adapter 后置。
 
+`agents.acquire` 使用 `SessionPort.acquireByTag` 的原子 find-or-create；宿主
+adapter 必须保证同一 `(profileKey, tag)` 并发调用恰好创建一个 session。
+ephemeral session 在 Run 的任何终态（completed/failed/cancelled）都会归档。
+
 ## 开发与生产构建
 
 ```text
@@ -172,8 +180,11 @@ bun run verify:package
 
 - 开发与测试使用 Bun。
 - `bun run build` 生成 bundled `dist/index.js` 和 TypeScript declarations。
-- `bun run verify:package` 额外运行 NodeNext declaration consumer 和纯 Node
-  import/execute smoke。
+- `bun run verify:package` 额外运行 NodeNext declaration consumer、纯 Node
+  import/execute smoke，以及隔离目录 smoke（在系统临时目录安装 tarball、
+  hostile `NODE_PATH`，验证主入口不依赖可选依赖）。
+- `npm publish` 会先运行 `prepublishOnly` gate，拒绝 README/package.json/LICENSE
+  存在未提交差异的发布。
 - 生产消费者使用 Node.js 20+ 加载 `dist`。
 - 构建通过不等于可运行；Task 01 还使用纯 Node import/execute smoke 验证产物。
 
@@ -192,6 +203,10 @@ bun run verify:package
 - Agent/Session 仍是兼容扩展，尚未接入 `neuro-agent-harness`。
 - Run 级 `workspace` 对象是进程内覆盖项；跨 Runner 恢复应由新 Runner 的
   `RunEnv.workspace` 重新注入。
+- `extractCfg`（投影二）需要可选的 `typescript` peer dependency；未安装时
+  调用它会得到明确错误，不影响主入口加载。
+- Signal 记录没有内置回收：durable `SignalStore` 宿主需要自行定义消费后的
+  TTL/清理合同。
 
 ## Public API
 
