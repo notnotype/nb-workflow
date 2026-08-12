@@ -209,11 +209,13 @@ bun build demo/generate.ts --outfile .agent/tmp/demo-compile/generate.js \
   -> passed
 
 npm pack --dry-run --json
-  -> 62 package entries / 93,735 bytes
+  -> 63 package entries / 95,104 bytes
 ```
 
 尚未完成：
 
 - Cosmos Prisma Backend conformance；
 - 真实进程重启、多 Worker、Harness 或 Cosmos Worker 验收。
-- npm 发布；仓库和 package 尚未声明许可证，发布前需要单独决策。
+
+0.1.1 已发布（MIT license 经 PR #3）；0.1.1 的发布产物缺陷与后续审计修复见
+[`docs/tasks/02-audit-hardening/`](../02-audit-hardening/README.md)。
