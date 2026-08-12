@@ -431,3 +431,28 @@ c3bdae63 Merge pull request #1 from notnotype/codex/feat-t01-kernel-stabilizatio
 Task 01 的 Kernel、conformance、兼容验证、Node 产物、CI 和合并均已完成。npm
 发布、许可证、真实进程重启、多 Worker 和 Cosmos Prisma Backend 仍由后续
 Task 单独验收。
+
+## Round 7：许可证决定
+
+日期：2026-08-12
+
+### 决定
+
+用户决定 `nb-workflow` 使用 MIT 许可证。
+
+### 修改
+
+- 新增根 `LICENSE`：MIT 全文，版权行 `Copyright (c) 2026 notnotype`（可后续
+  修改为真实署名）。
+- `package.json`：`license: "MIT"`，`files` 增加 `LICENSE`，确保 npm 包内容
+  包含许可证。
+- `README.md`：增加安装方式、Public API 地图和 License 引用。
+
+### 状态
+
+变更位于分支 `codex/license-mit`（基于合并后的 `origin/master`），尚未提交，
+等待用户确认后再 commit、push 和 PR。
+
+### 未验证
+
+- npm 发布仍未执行；发布前需要先合并本分支并完成发布验收。
