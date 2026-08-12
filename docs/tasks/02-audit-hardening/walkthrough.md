@@ -68,10 +68,25 @@ bun run verify:package
 - 发布动作（npm publish 0.1.2 + deprecate 0.1.1）为外部副作用，需用户
   2FA 确认后执行。
 
+## Round 5：0.1.2 发布与 registry 核验
+
+日期：2026-08-12
+
+- 用户在 release worktree 执行 `npm publish` 与 `npm deprecate`（2FA）。
+- registry 核验（`npm view`）：
+  - `versions`: `["0.1.1", "0.1.2"]`；
+  - `dist-tags.latest`: `0.1.2`；
+  - `@notnotype/nb-workflow@0.1.1` deprecated 消息：
+    `0.1.1 fails on clean installs (missing optional typescript); upgrade to 0.1.2`；
+  - 0.1.2 license MIT、engines node>=20、exports 与仓库一致。
+- 最终消费者验证：系统临时目录下载 0.1.2 tarball、隔离安装、hostile
+  `NODE_PATH`，`import '@notnotype/nb-workflow'` 并执行 workflow 成功
+  （`FINAL_CONSUMER_OK`）——0.1.1 的发布阻断在 0.1.2 已彻底修复。
+
 ## 下一步
 
 - PR #5（ee5946f + b289d84）已合并，merge commit `6d45cf4`。
 - `chore/release-0.1.2` 发布提交：版本号 0.1.2、README 版本行、本 walkthrough
   状态更新。
-- 发布动作：`npm publish`（需用户 2FA）与
-  `npm deprecate @notnotype/nb-workflow@0.1.1`，由用户在确认后执行。
+- 发布已完成并核验；后续 Task：真实进程重启、多 Worker、Cosmos Prisma
+  Backend 与 Harness 接入。
