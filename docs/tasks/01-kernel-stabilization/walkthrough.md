@@ -450,9 +450,41 @@ Task 单独验收。
 
 ### 状态
 
-变更位于分支 `codex/license-mit`（基于合并后的 `origin/master`），尚未提交，
-等待用户确认后再 commit、push 和 PR。
+变更已提交并合并（PR #3，merge commit `818b749`），`master` 已包含 MIT
+许可证。
 
-### 未验证
+## Round 8：npm 发布 0.1.1
 
-- npm 发布仍未执行；发布前需要先合并本分支并完成发布验收。
+日期：2026-08-12
+
+### 发布过程
+
+- 第一次手动发布从旧主工作区执行，把未构建的旧源码打成了
+  `@notnotype/nb-workflow@0.1.0`（无 `dist`、无 `LICENSE`、无入口字段）。
+- 该 0.1.0 已由用户 `npm unpublish` 撤回；npm 不允许复用已撤回的版本号，
+  最终发布为 `0.1.1`。
+- 从合并后的 `master`（`818b749`）在干净 worktree 中执行
+  `npm publish --access public`；npm 打开浏览器完成 2FA 网页授权后上传成功。
+
+### 发布验证
+
+```text
+npm view @notnotype/nb-workflow
+  -> version 0.1.1
+  -> dist-tags.latest = 0.1.1
+  -> license MIT
+  -> main ./dist/index.js / types ./dist/index.d.ts
+  -> engines node >= 20
+
+npm pack @notnotype/nb-workflow@0.1.1
+  -> 63 files（LICENSE、README.md、dist/*）
+
+全新目录安装 smoke
+  -> added 1 package
+  -> INSTALL_SMOKE_OK status=completed result={value:42}
+```
+
+### 记录
+
+- 版本号与安装文档随本分支提交；registry 内容以实际发布的 0.1.1 为准。
+- 后续发布继续使用浏览器网页授权，不再手工输入 OTP。
