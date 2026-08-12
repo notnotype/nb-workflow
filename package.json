@@ -35,7 +35,8 @@
         "build": "bun run clean && bun build src/index.ts --outdir dist --target node --format esm --sourcemap=external && node node_modules/typescript/bin/tsc -p tsconfig.build.json && node scripts/fix-declaration-imports.mjs",
         "verify:package": "bun run build && node node_modules/typescript/bin/tsc --noEmit --strict --skipLibCheck false --target ES2022 --module NodeNext --moduleResolution NodeNext scripts/package-consumer.mts && node scripts/node-smoke.mjs && node scripts/isolated-package-smoke.mjs",
         "prepublishOnly": "node scripts/check-publish-ready.mjs",
-        "demo": "bun demo/generate.ts"
+        "demo": "bun demo/generate.ts",
+        "demo:guide": "bun run build && node demo/guide.mjs"
     },
     "devDependencies": {
         "@types/bun": "latest",

@@ -188,6 +188,16 @@ bun run verify:package
 - 生产消费者使用 Node.js 20+ 加载 `dist`。
 - 构建通过不等于可运行；Task 01 还使用纯 Node import/execute smoke 验证产物。
 
+## 演示
+
+特性教学脚本 `demo/guide.mjs` 从包名导入并覆盖 10 个核心特性：Activity
+journal/replay、受控非确定性、map 并发、Signal/Timer/Child 等待恢复、取消、
+ValueStore、Agent Extension、错误语义与能力协商：
+
+```bash
+bun run demo:guide
+```
+
 ## 当前明确限制
 
 - Memory Backend 不支持进程重启、多 Worker、lease、durable signal/timer 或
