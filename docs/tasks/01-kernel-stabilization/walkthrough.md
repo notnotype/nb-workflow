@@ -1,6 +1,6 @@
 # Task 01 Walkthrough：Workflow Kernel 稳定化
 
-> 状态：Implementation complete / delivery pending
+> 状态：Merged via PR #1（2026-08-12）
 >
 > Task：[`README.md`](README.md)
 
@@ -387,3 +387,47 @@ demo compile 和 package contents 检查。远端 CI 在 push 前尚未运行，
 
 Run 级 `workspace` 对象仍是进程内覆盖项；跨 Runner 恢复必须由新 Runner 的
 `RunEnv.workspace` 注入。这个限制已明确记录，没有伪装成 durable capability。
+
+## Round 6：push、PR、远端 CI 与合并
+
+日期：2026-08-12
+
+### 提交
+
+```text
+1037c11 feat(kernel): stabilize workflow execution contracts
+362291e chore(task): add delivery gates and walkthrough
+```
+
+每次只暂存明确范围；没有使用 `git add -A`。用户 dirty `master` 的 6 个文件在
+提交前后 SHA-256 完全一致，外部修复 worktree 保持 clean。
+
+### 远端门禁
+
+- 分支 `codex/feat-t01-kernel-stabilization` 已 push 到
+  `notnotype/nb-workflow`。
+- PR #1（base `master`）状态 CLEAN / MERGEABLE；
+- Ubuntu CI workflow `verify`：SUCCESS；
+- 使用 merge commit 合并，保留两个语义提交：
+
+```text
+c3bdae63 Merge pull request #1 from notnotype/codex/feat-t01-kernel-stabilization
+```
+
+- 合并后 `origin/master` 从 `cf34d156` 推进到 `c3bdae63`；merge 内容与 Task
+  分支完全一致（49 个文件，+7,765 / -522）。
+
+### 保护边界复核
+
+- 用户本地 `master` 仍停在 `cf34d156`，6 个未提交文件未被触碰；fetch 后显示
+  落后远端 3 个提交（本 Task 的两个提交加 merge commit）。本地 `master` 的
+  `fetch` + `merge --ff-only` 同步留给用户确认后再执行，本 Task 不覆盖其
+  dirty 工作区。
+- 外部 `fix/i46-nb-workflow-contract` worktree 仍 clean。
+- Cosmos 仓库未修改，仍停在 `61ed21e`。
+
+### 最终状态
+
+Task 01 的 Kernel、conformance、兼容验证、Node 产物、CI 和合并均已完成。npm
+发布、许可证、真实进程重启、多 Worker 和 Cosmos Prisma Backend 仍由后续
+Task 单独验收。

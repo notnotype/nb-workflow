@@ -1,6 +1,6 @@
 # Task 01：Workflow Kernel 稳定化
 
-> 状态：Implementation complete / local gates passed
+> 状态：Merged via PR #1（2026-08-12）
 >
 > 开始日期：2026-08-11
 >
@@ -214,7 +214,6 @@ npm pack --dry-run --json
 
 尚未完成：
 
-- commit、push、PR、远端 CI 和 merge；
 - Cosmos Prisma Backend conformance；
 - 真实进程重启、多 Worker、Harness 或 Cosmos Worker 验收。
 - npm 发布；仓库和 package 尚未声明许可证，发布前需要单独决策。
