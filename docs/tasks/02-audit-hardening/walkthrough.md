@@ -1,6 +1,6 @@
 # Task 02 Walkthrough：审计修复与 0.1.2 发布
 
-> 状态：Implementation complete / delivery pending
+> 状态：Merged via PR #5（2026-08-12）
 >
 > Task：[`README.md`](README.md)
 
@@ -54,9 +54,24 @@ bun run verify:package
   -> ISOLATED_PACKAGE_SMOKE_OK
 ```
 
+## Round 4：合并与发布准备
+
+日期：2026-08-12
+
+- 两个语义提交：`ee5946f fix(kernel): close audit correctness gaps`（21 个
+  文件，代码与回归测试）与 `b289d84 chore(task): add release gates and
+  Task 02 docs`（脚本、package.json、README、Task 文档）。
+- PR #5 经 Ubuntu CI `verify` SUCCESS 后 merge commit 合并：
+  `6d45cf4 Merge pull request #5`。
+- `chore/release-0.1.2` 分支：package.json 版本 `0.1.2`、README 版本行、
+  Task 02 状态更新。
+- 发布动作（npm publish 0.1.2 + deprecate 0.1.1）为外部副作用，需用户
+  2FA 确认后执行。
+
 ## 下一步
 
-- commit、push、PR、CI、合并；
-- 创建 `chore/release-0.1.2`（版本号 0.1.2、README 版本行、walkthrough
-  Round 记录），CI 绿后合并；
-- `npm publish`（需用户 2FA）与 `npm deprecate @notnotype/nb-workflow@0.1.1`。
+- PR #5（ee5946f + b289d84）已合并，merge commit `6d45cf4`。
+- `chore/release-0.1.2` 发布提交：版本号 0.1.2、README 版本行、本 walkthrough
+  状态更新。
+- 发布动作：`npm publish`（需用户 2FA）与
+  `npm deprecate @notnotype/nb-workflow@0.1.1`，由用户在确认后执行。

@@ -1,6 +1,6 @@
 # Task 02：审计修复与 0.1.2 发布
 
-> 状态：Implementation complete / delivery pending
+> 状态：Merged via PR #5（2026-08-12）
 >
 > 开始日期：2026-08-12
 >
@@ -84,5 +84,5 @@ bun run verify:package
   -> ISOLATED_PACKAGE_SMOKE_OK（干净环境，无 typescript）
 ```
 
-发布与后续：PR 合并后创建 `chore/release-0.1.2` 发布提交（版本号、README、
-walkthrough），CI 绿后发布 0.1.2 并 `npm deprecate` 0.1.1。
+0.1.2 发布提交（版本号、README、walkthrough）已合并；随后发布 0.1.2 并
+`npm deprecate` 0.1.1。
