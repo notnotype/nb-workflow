@@ -14,19 +14,23 @@ Workflow script
   -> optional Backend and Host ports
 ```
 
-当前版本仍处于 API 稳定化阶段，尚未发布 npm 正式版。Memory 组合用于测试、demo
-和 Backend conformance；它不支持进程重启或多 Worker。
+当前版本 `0.1.1` 已发布到 npm。Memory 组合用于测试、demo 和 Backend
+conformance；它不支持进程重启或多 Worker。
 
 ## 安装
 
-尚未发布 npm 正式版，当前通过 Git 依赖使用固定 commit：
+```bash
+npm install @notnotype/nb-workflow
+```
+
+也可以从源码使用固定 commit 的 Git 依赖：
 
 ```bash
 bun add github:notnotype/nb-workflow#<40-char-commit-sha>
 ```
 
-生产构建前需要先为该固定 SHA 执行包构建（bundle 与 declarations 不提交到
-仓库）：在 `nb-workflow` 检出目录运行 `bun run build`，或使用发布 CI 产物。
+Git 依赖方式需要先为固定 SHA 执行包构建（bundle 与 declarations 不提交到
+仓库）：在 `nb-workflow` 检出目录运行 `bun run build`。
 
 ## Core 与宿主边界
 

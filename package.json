@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/nb-workflow",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Composable script-first Workflow Kernel with replay, optional durable backends, and host ports",
     "type": "module",
     "license": "MIT",
