@@ -28,7 +28,10 @@ import {
     emitWorkflowEvent,
     type RunEnv,
 } from "./runtime-events";
-import type { RunView } from "./types";
+import type {
+    ActivityRecord,
+    RunView,
+} from "./types";
 import type { WorkflowValueCodec } from "./values";
 import { createWorkflowContext } from "./workflow-context";
 
@@ -101,7 +104,17 @@ export async function executeWorkflowRun(
         }
     } finally {
         await options.ports.sessions?.releaseAll(run.runId);
+        if (run.status !== "waiting") {
+            // ephemeral 会话在所有终态（含 failed/cancelled）归档，防止
+            // 被后续 acquire 复用；归档失败是 best-effort 清理，不改变
+            // 主终态。
+            await archiveEphemeralSessions(
+                run,
+                options.ports,
+            ).catch(() => undefined);
+        }
         if (!persistenceFailure) {
+            recomputeCheckpoint(run);
             await options.persist();
             emitWorkflowEvent(options.env, {
                 type: "status",
@@ -131,11 +144,6 @@ async function completeRun(
         return;
     }
     const storedResult = await options.values.encode(result);
-    if (run.abortRequested) {
-        markCancelled(run);
-        return;
-    }
-    await archiveEphemeralSessions(execution, options.ports);
     if (run.abortRequested) {
         markCancelled(run);
         return;
@@ -173,4 +181,34 @@ function isPersistenceFailure(
     error: unknown,
 ): error is WorkflowPersistenceError {
     return error instanceof WorkflowPersistenceError;
+}
+
+/**
+ * checkpoint 投影必须与 journal 同样确定：并发分支的完成顺序不能改变
+ * 最终 checkpoint。按 (path, seq) 取排序最大的 checkpoint 记录。
+ */
+function recomputeCheckpoint(run: RunRecord): void {
+    let latest: ActivityRecord | undefined;
+    for (const record of run.journal.values()) {
+        if (record.kind !== "checkpoint") {
+            continue;
+        }
+        if (!latest || isAfter(record, latest)) {
+            latest = record;
+        }
+    }
+    run.checkpoint = latest
+        ? structuredClone(latest.result)
+        : null;
+}
+
+function isAfter(
+    candidate: ActivityRecord,
+    current: ActivityRecord,
+): boolean {
+    const pathOrder = candidate.path.localeCompare(current.path);
+    return pathOrder > 0 || (
+        pathOrder === 0
+        && candidate.seq > current.seq
+    );
 }

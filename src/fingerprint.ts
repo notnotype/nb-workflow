@@ -4,7 +4,14 @@ import type { JsonValue } from "./types";
 
 export class NonJsonValueError extends Error {
     constructor(readonly path: string, readonly reason: string) {
-        super(`Workflow value at ${path} is not valid JSON: ${reason}.`);
+        const escaped = JSON.stringify(path).slice(1, -1);
+        const truncated = escaped.length > 300
+            ? `${escaped.slice(0, 297)}...`
+            : escaped;
+        super(
+            `Workflow value at ${truncated} is not valid JSON: `
+            + `${reason}.`,
+        );
         this.name = "NonJsonValueError";
     }
 }
@@ -58,16 +65,31 @@ function canonicalize(
     ancestors.add(value);
     try {
         if (Array.isArray(value)) {
+            const symbols = Object.getOwnPropertySymbols(value);
+            if (symbols.length > 0) {
+                throw new NonJsonValueError(
+                    path,
+                    "symbol keys are unsupported",
+                );
+            }
             const output: JsonValue[] = [];
             for (let index = 0; index < value.length; index += 1) {
-                if (!Object.hasOwn(value, index)) {
+                const descriptor = Object.getOwnPropertyDescriptor(
+                    value,
+                    index,
+                );
+                if (
+                    !descriptor
+                    || !descriptor.enumerable
+                    || !("value" in descriptor)
+                ) {
                     throw new NonJsonValueError(
                         `${path}[${index}]`,
-                        "sparse array entry",
+                        "index must be an enumerable data property",
                     );
                 }
                 output.push(canonicalize(
-                    value[index],
+                    descriptor.value,
                     `${path}[${index}]`,
                     ancestors,
                     depth + 1,

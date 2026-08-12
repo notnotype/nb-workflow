@@ -36,7 +36,7 @@ export class MockAgentPort implements AgentPort {
     /** 在 fromLeaf 处追加用户输入 → responder 应答 → 追加助手回复；waiting 时游标停在用户 entry */
     async invoke(sessionId: SessionId, fromLeaf: string | null, opts: InvokeOptions): Promise<AgentInvokeOutcome> {
         const userLeaf = await this.sessions.append(sessionId, fromLeaf, {
-            role: "user", message: opts.message, input: opts.input, origin: "workflow",
+            role: "user", message: opts.message ?? undefined, input: opts.input, origin: "workflow",
         });
         const resp = await this.respondAt(sessionId, userLeaf, opts);
         if (resp.waiting) {
@@ -57,7 +57,7 @@ export class MockAgentPort implements AgentPort {
             sessionId,
             history: await this.sessions.transcript(sessionId, historyLeaf),
             mode: opts.mode ?? "prompt",
-            message: opts.message,
+            message: opts.message ?? undefined,
             input: opts.input,
         });
     }

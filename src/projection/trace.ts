@@ -9,6 +9,23 @@ export type TraceNode = {
 
 export type TraceGraph = { nodes: TraceNode[]; edges: [string, string][]; mermaid: string };
 
+/** 分支路径 `parent/<mapSeq>:<index>` 按段解析，嵌套路径取真实父路径。 */
+function branchParent(path: string): {
+    parent: string;
+    mapSeq: number;
+} | null {
+    const segments = path.split("/");
+    const leaf = segments[segments.length - 1];
+    const match = leaf?.match(/^(\d+):(\d+)$/);
+    if (!match || segments.length < 2) {
+        return null;
+    }
+    return {
+        parent: segments.slice(0, -1).join("/"),
+        mapSeq: Number(match[1]),
+    };
+}
+
 /**
  * 投影三：动态 trace。journal 本身就是精确执行图：
  * 同路径 Activity 顺序连边；子路径（map 分支）从父路径的派生点接入、汇合回派生点之后的下一个 Activity。
@@ -35,14 +52,12 @@ export function traceGraph(journal: ActivityRecord[]): TraceGraph {
     }
     // 分支边：子路径 parent/<mapSeq>:<i> 从父路径中 seq < mapSeq 的最后一个 Activity 接入
     for (const [path, list] of byPath) {
-        const m = path.match(/^(.*)\/(\d+):\d+$/);
+        const branch = branchParent(path);
         const first = list[0];
         const last = list[list.length - 1];
-        if (!m || !first || !last) continue;
-        const [, parentPath, seqText] = m;
-        if (parentPath === undefined || seqText === undefined) continue;
-        const parentList = byPath.get(parentPath) ?? [];
-        const mapSeq = Number(seqText);
+        if (!branch || !first || !last) continue;
+        const parentList = byPath.get(branch.parent) ?? [];
+        const { mapSeq } = branch;
         const anchor = [...parentList].reverse().find((r) => r.seq < mapSeq);
         if (anchor) edges.push([anchor.key, first.key]);
         const join = parentList.find((r) => r.seq > mapSeq);
@@ -56,7 +71,7 @@ export function traceGraph(journal: ActivityRecord[]): TraceGraph {
         return n.kind === "ask" ? `${idOf.get(n.key)}(["${label}"])` : `${idOf.get(n.key)}["${label}"]`;
     };
     // 并行分支组：同一 map/all 派生的子路径圈进 subgraph，图上明示并发结构
-    const groupOf = (path: string) => path.match(/^(.*\/\d+):\d+$/)?.[1] ?? null;
+    const groupOf = (path: string) => branchParent(path)?.parent ?? null;
     const groups = new Map<string, TraceNode[]>();
     const plain: TraceNode[] = [];
     for (const n of nodes) {

@@ -37,6 +37,41 @@ export class MemorySessionStore implements SessionPort {
     }
 
     async findByTag(profileKey: string, tag: string): Promise<SessionMeta | null> {
+        return this.findByTagSync(profileKey, tag);
+    }
+
+    /** 原子 find-or-create：同步块内完成，并发调用同一 tag 只会创建一个。 */
+    async acquireByTag(init: {
+        profileKey: string;
+        tag: string;
+        parentSessionId?: SessionId;
+    }): Promise<{
+        sessionId: SessionId;
+        leafId: EntryId | null;
+        created: boolean;
+    }> {
+        const existing = this.findByTagSync(init.profileKey, init.tag);
+        if (existing) {
+            return {
+                sessionId: existing.sessionId,
+                leafId: this.record(existing.sessionId).activeLeaf,
+                created: false,
+            };
+        }
+        const meta = await this.createSession({
+            profileKey: init.profileKey,
+            kind: "chat",
+            tags: [init.tag],
+            parentSessionId: init.parentSessionId,
+        });
+        return {
+            sessionId: meta.sessionId,
+            leafId: null,
+            created: true,
+        };
+    }
+
+    private findByTagSync(profileKey: string, tag: string): SessionMeta | null {
         for (const rec of this.sessions.values()) {
             if (!rec.meta.archived && rec.meta.profileKey === profileKey && rec.meta.tags.includes(tag)) return rec.meta;
         }

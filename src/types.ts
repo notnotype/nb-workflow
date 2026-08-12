@@ -80,7 +80,7 @@ export type InvokeResult = {
 
 export type InvokeOptions = {
     mode?: "prompt" | "continue" | "steer" | "followup";
-    message?: string;
+    message?: string | null;
     input?: JsonValue;
     /** Run 取消信号；AgentPort 应将它绑定到本次精确 invocation。 */
     signal?: AbortSignal;

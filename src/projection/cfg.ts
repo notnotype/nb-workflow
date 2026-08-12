@@ -1,10 +1,23 @@
 import {createRequire} from "node:module";
 import type * as TypeScript from "typescript";
 
-// typescript 是 ~9MB 的单文件 CJS 包：必须用运行时 require 而非 ESM import，
-// 否则宿主打包器（如 Nitro dev 的 rollup）会把它拉进模块图解析，内存暴涨直至 OOM。
-const require = createRequire(import.meta.url);
-const ts = require("typescript") as typeof TypeScript;
+/**
+ * typescript 是 ~9MB 的单文件 CJS 包：只能在调用 extractCfg 时同步 require，
+ * 不能在模块顶层加载——否则主入口 import 就会强制拉起 typescript，既让
+ * 无 typescript 依赖的消费者崩溃，也让宿主打包器把它拉进模块图。
+ */
+function loadTypeScript(): typeof TypeScript {
+    try {
+        const require = createRequire(import.meta.url);
+        return require("typescript") as typeof TypeScript;
+    } catch (error) {
+        throw new Error(
+            "extractCfg requires the optional 'typescript' package. "
+            + "Install typescript or avoid calling extractCfg.",
+            { cause: error },
+        );
+    }
+}
 
 export type CfgNode = {
     id: number;
@@ -45,6 +58,7 @@ function orchCallName(receiver: string, method: string): string | null {
  * 收集 wf.* / handle 方法调用点及其包裹控制结构。静态、best-effort、允许漏报误报。
  */
 export function extractCfg(source: string): CfgGraph {
+    const ts = loadTypeScript();
     const sf = ts.createSourceFile("workflow.ts", source, ts.ScriptTarget.ES2022, true);
     const nodes: CfgNode[] = [];
 
