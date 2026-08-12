@@ -14,7 +14,7 @@ Workflow script
   -> optional Backend and Host ports
 ```
 
-当前版本 `0.1.1` 已发布到 npm。Memory 组合用于测试、demo 和 Backend
+当前版本 `0.1.2` 已发布到 npm。Memory 组合用于测试、demo 和 Backend
 conformance；它不支持进程重启或多 Worker。
 
 ## 安装
