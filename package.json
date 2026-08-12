@@ -3,6 +3,7 @@
     "version": "0.1.0",
     "description": "Composable script-first Workflow Kernel with replay, optional durable backends, and host ports",
     "type": "module",
+    "license": "MIT",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
     "exports": {
@@ -13,7 +14,8 @@
     },
     "files": [
         "dist",
-        "README.md"
+        "README.md",
+        "LICENSE"
     ],
     "engines": {
         "node": ">=20"

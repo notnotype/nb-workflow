@@ -17,6 +17,17 @@ Workflow script
 当前版本仍处于 API 稳定化阶段，尚未发布 npm 正式版。Memory 组合用于测试、demo
 和 Backend conformance；它不支持进程重启或多 Worker。
 
+## 安装
+
+尚未发布 npm 正式版，当前通过 Git 依赖使用固定 commit：
+
+```bash
+bun add github:notnotype/nb-workflow#<40-char-commit-sha>
+```
+
+生产构建前需要先为该固定 SHA 执行包构建（bundle 与 declarations 不提交到
+仓库）：在 `nb-workflow` 检出目录运行 `bun run build`，或使用发布 CI 产物。
+
 ## Core 与宿主边界
 
 Kernel 拥有：
@@ -178,5 +189,41 @@ bun run verify:package
 - Run 级 `workspace` 对象是进程内覆盖项；跨 Runner 恢复应由新 Runner 的
   `RunEnv.workspace` 重新注入。
 
+## Public API
+
+入口是 `WorkflowRunner`，其余公共能力从 `@notnotype/nb-workflow` 顶层导出：
+
+- **Runner**：`WorkflowRunner`；`start`/`begin` 启动，
+  `resume`/`rerun`/`cancel`/`signal` 控制，`view`/`loadView`/`list`/
+  `listStored` 查询。
+- **定义类型**：`WorkflowDefinition`（Core）、`AgentWorkflowDefinition`
+  （Extension）、`WorkflowContext`、`AgentWorkflowContext`、`RunView`、
+  `WorkflowValue`、`ValueRef`、`AskSpec`、`BackendCapabilities`、
+  `BackendRequirements`。
+- **Host Port**：`WorkflowBackend`、`ActivityExecutor`、`DefinitionRegistry`、
+  `ValueStore`、`EventSink`、`SignalStore`、`TimerStore`、
+  `ChildWorkflowStore`、`Clock`、`IdGenerator`、`RandomSource`，以及可选
+  `SessionPort`、`AgentPort`、`WorkspacePort`。
+- **Memory 实现**：`MemoryWorkflowBackend`、`MemoryActivityExecutor`、
+  `MemoryDefinitionRegistry`、`MemoryValueStore`、`MemoryEventSink`、
+  `MemorySignalStore`、`MemoryTimerStore`、`MemoryChildWorkflowStore`、
+  `MemorySessionStore`、`MockAgentPort`、`createMemoryWorkspace`。
+- **Conformance**：`workflowBackendConformanceCases`、
+  `workflowRunnerBackendConformanceCases`、`valueStoreConformanceCases`，
+  Cosmos 等宿主 Backend 可以直接复用。
+- **工具**：`fingerprint`、`canonicalJson`、`assertJsonValue`、
+  `definitionReference`、`definitionManifestHash`、
+  `assertVersionedReference`、`validateSignalReference`、
+  `validateTimerDuration`、`validateWorkflowEvent`。
+- **投影**：`skeletonMermaid`、`extractCfg`、`traceGraph`。
+
+错误类型（`WorkflowPersistenceError`、`WorkflowBackendConflictError`、
+`WorkflowDefinitionConflictError`、`SignalConflictError` 等）全部从顶层导出，
+可按 `instanceof` 区分基础设施错误与业务失败。
+
 实施记录见
 [`docs/tasks/01-kernel-stabilization/`](docs/tasks/01-kernel-stabilization/README.md)。
+
+## License
+
+[MIT](LICENSE)
