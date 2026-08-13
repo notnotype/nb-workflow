@@ -1,6 +1,7 @@
 import type {
     ActivityCallOptions,
     ActivityIdentity,
+    DeferredActivityStartResult,
     AnyWorkflowDefinition,
     ChildWorkflowOptions,
     EntryId,
@@ -230,6 +231,18 @@ export type ActivityExecutionRequest = {
 export interface ActivityExecutor {
     callAction(request: ActivityExecutionRequest): Promise<JsonValue>;
     query(request: ActivityExecutionRequest): Promise<JsonValue>;
+}
+
+/**
+ * 可选的外部 Activity 启动端口。它只负责创建/登记外部工作；完成结果
+ * 通过 WorkflowRunner.completeActivity 回到 Kernel，不把 Cosmos 类型带入 Core。
+ * 宿主必须按 context.idempotencyKey 幂等创建，或能用该 key 重新发现已创建
+ * 的外部工作；Kernel 可能在 receipt 落库前崩溃，不能替宿主补偿重复创建。
+ */
+export interface DeferredActivityExecutor {
+    startAction(
+        request: ActivityExecutionRequest,
+    ): Promise<DeferredActivityStartResult>;
 }
 
 /** Workflow 函数由宿主加载；Backend 只保存 Definition reference。 */

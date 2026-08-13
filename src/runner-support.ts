@@ -1,5 +1,6 @@
 import type {
     ActivityExecutor,
+    DeferredActivityExecutor,
     ChildWorkflowStore,
     Clock,
     DefinitionRegistry,
@@ -18,11 +19,13 @@ import type {
     SessionId,
 } from "./types";
 import type { WorkflowBackend } from "./backend";
+import { fingerprint } from "./fingerprint";
 
 export type WorkflowRunnerOptions = {
     backend?: WorkflowBackend;
     definitions?: DefinitionRegistry;
     activities?: ActivityExecutor;
+    deferredActivities?: DeferredActivityExecutor;
     children?: ChildWorkflowStore;
     events?: EventSink;
     signals?: SignalStore;
@@ -59,11 +62,42 @@ export function resetExecutionProjection(run: RunRecord): void {
     run.error = undefined;
 }
 
-export function markCancelled(run: RunRecord): void {
+export function markCancelled(
+    run: RunRecord,
+    completedAt = new Date().toISOString(),
+): void {
+    cancelPendingActivities(run, completedAt);
     run.status = "cancelled";
+    run.resumeRequired = false;
     run.error = "workflow run 被取消";
     run.pendingAsks = [];
     run.pendingWaits = [];
+}
+
+export function cancelPendingActivities(
+    run: RunRecord,
+    completedAt: string,
+): void {
+    for (const pending of run.pendingActivities) {
+        run.activityCompletions.push({
+            ...pending,
+            status: "cancelled",
+            completionFingerprint: fingerprint({
+                activityKey: pending.key,
+                receipt: pending.receipt,
+                reference: pending.reference,
+                fingerprint: pending.fingerprint,
+                status: "cancelled",
+                hasResult: false,
+                result: null,
+                hasError: false,
+                error: null,
+            }),
+            error: "workflow run 被取消",
+            completedAt,
+        });
+    }
+    run.pendingActivities = [];
 }
 
 export function isTerminal(run: RunRecord): boolean {

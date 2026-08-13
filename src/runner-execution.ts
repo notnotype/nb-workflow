@@ -2,6 +2,7 @@ import type {
     ActivityExecutor,
     ChildWorkflowStore,
     Clock,
+    DeferredActivityExecutor,
     EventSink,
     RandomSource,
     SignalStore,
@@ -13,6 +14,7 @@ import { runRecordToView, type RunRecord } from "./run-record";
 import { WorkflowPersistenceError } from "./runner-run-store";
 import {
     archiveEphemeralSessions,
+    isTerminal,
     markCancelled,
     resetExecutionProjection,
     unbindExternalAbort,
@@ -40,6 +42,7 @@ export type WorkflowRunExecutionOptions = {
     ports: WorkflowPorts;
     env: RunEnv;
     activities: ActivityExecutor;
+    deferredActivities: DeferredActivityExecutor | undefined;
     children: ChildWorkflowStore;
     events: EventSink;
     signals: SignalStore;
@@ -74,6 +77,7 @@ export async function executeWorkflowRun(
         execution,
         options.ports,
         options.activities,
+        options.deferredActivities,
         options.children,
         options.events,
         options.signals,
@@ -115,7 +119,8 @@ export async function executeWorkflowRun(
         }
         if (!persistenceFailure) {
             recomputeCheckpoint(run);
-            await options.persist();
+            run.resumeRequired = false;
+            await persistExecutionProjection(options, run);
             emitWorkflowEvent(options.env, {
                 type: "status",
                 runId: run.runId,
@@ -181,6 +186,31 @@ function isPersistenceFailure(
     error: unknown,
 ): error is WorkflowPersistenceError {
     return error instanceof WorkflowPersistenceError;
+}
+
+async function persistExecutionProjection(
+    options: WorkflowRunExecutionOptions,
+    run: RunRecord,
+): Promise<void> {
+    try {
+        await options.persist();
+    } catch (error) {
+        if (run.persistencePoisoned) {
+            throw error;
+        }
+        if (isTerminal(run)) {
+            return;
+        }
+        if (!run.abortRequested) {
+            throw error;
+        }
+        // cancel() 先持久化 cancelRequestedAt 后，执行期 finally 的 terminal
+        // save 可能与宿主的合法 CAS 更新相撞。RunnerRunStore 已回滚到
+        // Backend 最后快照；在同一个 Run 上把取消事实收口为 terminal，避免
+        // 最终只留下 running + cancelRequestedAt 的无人拥有状态。
+        markCancelled(run);
+        await options.persist();
+    }
 }
 
 /**

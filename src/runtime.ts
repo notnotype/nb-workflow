@@ -6,12 +6,17 @@ import {
     assertVersionedReference,
 } from "./activities";
 import { ChildWorkflowTerminalError } from "./children";
-import { fingerprint } from "./fingerprint";
+import {
+    DeferredActivityCompletionConflictError,
+    DeferredActivityFailedError,
+} from "./deferred-activities";
+import { assertJsonValue, fingerprint } from "./fingerprint";
 import type {
     ActivityExecutionContext,
     ActivityExecutor,
     ChildWorkflowStore,
     Clock,
+    DeferredActivityExecutor,
     EventSink,
     RandomSource,
     SignalStore,
@@ -26,11 +31,13 @@ import {
 import { validateSignalReference } from "./signals";
 import { validateTimerDuration } from "./timers";
 import type {
+    ActivityCallOptions,
     ActivityRecord,
     AskSpec,
     ChildWorkflowOptions,
     JsonValue,
     PendingAsk,
+    PendingActivity,
     SessionId,
     WorkflowValue,
 } from "./types";
@@ -69,6 +76,7 @@ export class Runtime {
         readonly exec: ExecutionState,
         readonly ports: WorkflowPorts,
         readonly activities: ActivityExecutor,
+        readonly deferredActivities: DeferredActivityExecutor | undefined,
         readonly children: ChildWorkflowStore,
         readonly events: EventSink,
         readonly signals: SignalStore,
@@ -168,6 +176,158 @@ export class Runtime {
             cached: false,
         });
         return result;
+    }
+
+    async deferredAction<T extends JsonValue>(
+        reference: string,
+        input: JsonValue,
+        options: ActivityCallOptions,
+    ): Promise<T> {
+        if (!this.deferredActivities) {
+            return await this.activity(
+                "action",
+                {
+                    reference,
+                    input,
+                    options: activityOptionsFingerprint(options),
+                },
+                async (context) => await this.activities.callAction({
+                    reference,
+                    input,
+                    options,
+                    context,
+                }),
+            ) as T;
+        }
+
+        this.assertRunning();
+        const path = this.path();
+        const seq = this.exec.nextSeq(path);
+        const key = path + "#" + seq;
+        const activityFingerprint = fingerprint({
+            reference,
+            input,
+            options: activityOptionsFingerprint(options),
+        });
+        const dirty = this.exec.dirtyFrom.get(path);
+        const cached = this.run.journal.get(key);
+        if (cached && (dirty === undefined || seq < dirty)) {
+            if (
+                cached.kind === "action"
+                && cached.fingerprint === activityFingerprint
+            ) {
+                emitWorkflowEvent(this.env, {
+                    type: "activity",
+                    runId: this.run.runId,
+                    record: cached,
+                    cached: true,
+                });
+                const value = await this.values.decode(cached.result) as T;
+                this.assertRunning();
+                return value;
+            }
+            this.exec.dirtyFrom.set(path, seq);
+            this.invalidateSuffix(path, seq);
+        }
+
+        const activity = {
+            key,
+            path,
+            seq,
+            kind: "action" as const,
+            fingerprint: activityFingerprint,
+            reference,
+        };
+        const completion = this.run.activityCompletions.find(
+            (candidate) => candidate.key === key,
+        );
+        if (completion) {
+            if (!sameActivityIdentity(completion, activity)) {
+                throw new DeferredActivityCompletionConflictError(key);
+            }
+            if (completion.status === "failed") {
+                throw new DeferredActivityFailedError(
+                    completion.error ?? "Deferred Activity failed.",
+                );
+            }
+            if (completion.status === "cancelled") {
+                throw new WorkflowCancelledError();
+            }
+            if (!completion.result) {
+                throw new Error(
+                    "Deferred Activity " + key + " has no completed result.",
+                );
+            }
+            const value = await this.values.decode(completion.result) as T;
+            this.assertRunning();
+            return value;
+        }
+        const pending = this.run.pendingActivities.find(
+            (candidate) => candidate.key === key,
+        );
+        if (pending && sameActivityIdentity(pending, activity)) {
+            throw new SuspendSignal();
+        }
+        if (pending) {
+            this.exec.dirtyFrom.set(path, seq);
+            this.invalidatePendingSuffix(path, seq);
+        }
+
+        emitWorkflowEvent(this.env, {
+            type: "activity_started",
+            runId: this.run.runId,
+            ...activity,
+        });
+        const started = await this.deferredActivities.startAction({
+            reference,
+            input,
+            options,
+            context: {
+                runId: this.run.runId,
+                activity,
+                idempotencyKey: activityIdempotencyKey(
+                    this.run.runId,
+                    activity,
+                ),
+                signal: this.signal,
+            },
+        });
+        this.assertRunning();
+        if (started.status === "completed") {
+            assertJsonValue(started.result);
+            const encodedResult = await this.values.encode(started.result);
+            this.assertRunning();
+            const record: ActivityRecord = {
+                ...activity,
+                result: encodedResult,
+            };
+            this.run.journal.set(key, record);
+            await this.persist();
+            emitWorkflowEvent(this.env, {
+                type: "activity",
+                runId: this.run.runId,
+                record,
+                cached: false,
+            });
+            return structuredClone(started.result) as T;
+        }
+        validateDeferredStart(started);
+        const pendingActivity: PendingActivity = {
+            ...activity,
+            reference,
+            receipt: started.receipt,
+            reason: started.reason,
+            stateRevision: this.run.revision,
+            createdAt: this.clock.now().toISOString(),
+        };
+        this.run.pendingActivities.push(pendingActivity);
+        await this.persist();
+        emitWorkflowEvent(this.env, {
+            type: "activity_pending",
+            runId: this.run.runId,
+            activity: pendingActivity,
+        });
+        throw new SuspendSignal();
     }
 
     async askActivity(spec: AskSpec): Promise<JsonValue> {
@@ -368,6 +528,81 @@ export class Runtime {
                 this.run.journal.delete(key);
             }
         }
+        this.invalidatePendingSuffix(path, sequence);
+    }
+
+    private invalidatePendingSuffix(path: string, sequence: number): void {
+        this.run.pendingActivities = this.run.pendingActivities.filter(
+            (pending) => !isActivityAtOrBelow(pending, path, sequence),
+        );
+        this.run.activityCompletions = this.run.activityCompletions.filter(
+            (completion) => !isActivityAtOrBelow(completion, path, sequence),
+        );
+    }
+}
+
+function sameActivityIdentity(
+    left: {
+        key: string;
+        path: string;
+        seq: number;
+        fingerprint: string;
+        reference: string;
+    },
+    right: {
+        key: string;
+        path: string;
+        seq: number;
+        fingerprint: string;
+        reference: string;
+    },
+): boolean {
+    return left.key === right.key
+        && left.path === right.path
+        && left.seq === right.seq
+        && left.fingerprint === right.fingerprint
+        && left.reference === right.reference;
+}
+
+function isActivityAtOrBelow(
+    activity: { path: string; seq: number },
+    path: string,
+    sequence: number,
+): boolean {
+    if (activity.path === path) {
+        return activity.seq >= sequence;
+    }
+    const prefix = path + "/";
+    if (!activity.path.startsWith(prefix)) {
+        return false;
+    }
+    const segment = activity.path.slice(prefix.length).split("/", 1)[0] ?? "";
+    const separator = segment.indexOf(":");
+    const branchSequence = Number(segment.slice(0, separator));
+    return separator > 0
+        && Number.isSafeInteger(branchSequence)
+        && branchSequence >= sequence;
+}
+
+function validateDeferredStart(
+    result: { status: "pending"; receipt: string; reason: string },
+): void {
+    if (
+        typeof result.receipt !== "string"
+        || !result.receipt.trim()
+        || result.receipt.trim() !== result.receipt
+    ) {
+        throw new Error(
+            "Deferred Activity receipt must be a non-empty trimmed string.",
+        );
+    }
+    if (
+        typeof result.reason !== "string"
+        || !result.reason.trim()
+    ) {
+        throw new Error(
+            "Deferred Activity pending reason must be a non-empty string.",
+        );
     }
 }
 
@@ -467,4 +702,14 @@ function activityIdempotencyKey(
 
 export function unsupportedActivities(): ActivityExecutor {
     return new UnsupportedActivityExecutor();
+}
+
+function activityOptionsFingerprint(
+    options: ActivityCallOptions,
+): JsonValue {
+    return {
+        key: options.key ?? null,
+        timeoutMs: options.timeoutMs ?? null,
+        metadata: options.metadata ?? null,
+    };
 }

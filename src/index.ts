@@ -15,6 +15,12 @@ export {
     type MemoryActivityHandler,
 } from "./activities";
 export {
+    DeferredActivityCompletionConflictError,
+    DeferredActivityFailedError,
+    DeferredActivityLateCompletionError,
+    DeferredActivityNotFoundError,
+} from "./deferred-activities";
+export {
     MemoryValueStore,
     WorkflowValueCodec,
     WorkflowValueIntegrityError,
@@ -74,10 +80,14 @@ export {
 } from "./definitions";
 export {
     valueStoreConformanceCases,
+    deferredActivityConformanceCases,
     workflowBackendConformanceCases,
     workflowRunnerBackendConformanceCases,
     type ValueStoreConformanceCase,
     type ValueStoreFactory,
+    type DeferredActivityConformanceCase,
+    type DeferredActivityConformanceFactory,
+    type DeferredActivityConformanceHarness,
     type WorkflowBackendConformanceCase,
     type WorkflowBackendFactory,
 } from "./conformance";
@@ -90,6 +100,7 @@ export {
     type ActivityExecutionContext,
     type ActivityExecutionRequest,
     type ActivityExecutor,
+    type DeferredActivityExecutor,
     type Clock,
     type ChildWorkflowStartInput,
     type ChildWorkflowStartResult,

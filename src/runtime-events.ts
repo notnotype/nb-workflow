@@ -24,6 +24,11 @@ export type WorkflowEvent =
         record: ActivityRecord;
         cached: boolean;
     }
+    | {
+        type: "activity_pending";
+        runId: string;
+        activity: import("./types").PendingActivity;
+    }
     | { type: "ask_pending"; runId: string; ask: PendingAsk }
     | { type: "log"; runId: string; message: string }
     | { type: "progress"; runId: string; state: ProgressState }
