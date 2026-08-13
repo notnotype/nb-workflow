@@ -264,7 +264,7 @@ git diff --check
   passed（仅 Windows LF/CRLF 转换提示）
 ```
 
-`prepublishOnly` 在当前 dirty metadata 下按预期拒绝（先完成 verify:package，再因 README/package.json dirty 停止）；成功路径未在 clean commit 上运行。远端 CI、Windows Node 20、真实 npm Registry 下载包、npm publish、真实 durable Backend、真实跨进程恢复、多 Worker fencing、Cosmos Host/Worker、浏览器、Docker 和真实 Provider 仍未验证。
+`bun run prepublishOnly` 在本地 clean checkpoint `9183a4f` 上通过并输出 `PUBLISH_READY_OK`；此前 dirty metadata 的拒绝路径也已验证。远端 CI、Windows Node 20、真实 npm Registry 下载包、npm publish、真实 durable Backend、真实跨进程恢复、多 Worker fencing、Cosmos Host/Worker、浏览器、Docker 和真实 Provider 仍未验证。
 
 重要边界：Round 4 的 tarball 是从当前 worktree 本地生成的候选包，不是 npm Registry 的 `0.1.2`，不改变 Registry 版本；“本地候选实现/候选 public API”也不等同正式发布或 durable host 合同。
 

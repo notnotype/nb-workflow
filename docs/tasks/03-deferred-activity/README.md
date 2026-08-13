@@ -1,6 +1,6 @@
 # Task 03：Deferred Activity
 
-> 状态：本地候选实现已完成；package gates（含真实 tarball consumer）已通过，但仍未提交、发布或接入 durable host。
+> 状态：本地候选实现已 checkpoint；package gates（含真实 tarball consumer）与 clean checkpoint `prepublishOnly` 已通过，但尚未发布或接入 durable host。
 > 日期：2026-08-13
 >
 > 分支：`feat/t03-deferred-activity`
@@ -101,7 +101,7 @@ callAction
 2. 选择不破坏 0.1.2 同步 ActivityExecutor 的最小 Port 扩展。已完成。
 3. 实现 Memory 参考语义和 Runner/Backend 集成。已完成。
 4. 完整测试、typecheck、build 和 package smoke 已通过；package smoke 还覆盖真实 npm 安装后的声明解析和 Deferred Activity completion 行为。
-5. 候选 public API 已由当前测试和 tarball consumer 固定；正式稳定承诺仍需稳定 commit、发布审查和 durable Backend conformance。当前 npm `0.1.2` 不包含本 worktree 的 Deferred Activity，commit、版本和发布仍需独立授权任务。
+5. 候选 public API 已由当前测试和 tarball consumer 固定；正式稳定承诺仍需发布审查和 durable Backend conformance。当前 npm `0.1.2` 不包含本 worktree 的 Deferred Activity；版本和发布仍需独立授权任务。
 
 ## 7. 验收门禁
 
