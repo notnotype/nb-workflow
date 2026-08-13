@@ -1,15 +1,16 @@
 # Task 03：Deferred Activity
 
-> 状态：本地候选实现已 checkpoint；package gates（含真实 tarball consumer）与 clean checkpoint `prepublishOnly` 已通过，但尚未发布或接入 durable host。
+> 状态：`0.2.0` 发布候选已完成本地门禁，待提交、推送、PR/合并和 npm 发布；尚未接入 durable host。
 > 日期：2026-08-13
 >
-> 分支：`feat/t03-deferred-activity`
+> 分支：`chore/t03-release-0.2.0`
 >
 > 当前基线：`origin/master@cb4c8146684185971c8d9f02367811456471bcbd`
 >
 > Walkthrough：[`walkthrough.md`](walkthrough.md)
-
+>
 > 保护边界：nb-workflow dirty master、t01/t02 worktree、NeuroBook 外部 worktree 与 Cosmos worktree 均不属于本 Task 修改或提交范围。目标 worktree 中既有实现和未提交文件属于本 Task 候选变更，提交前必须逐文件确认。
+>
 
 ## 责任与协作矩阵
 
@@ -54,8 +55,7 @@ focused/conformance 使用 deterministic Memory fixture；不等同真实 durabl
 
 ## 当前验证
 
-本轮验证记录见 [`walkthrough.md`](walkthrough.md) Round 4。当前已验证的是目标 worktree 的 deterministic Memory 行为，以及通过真实 `npm install` 安装当前本地 tarball 后的 Node/TypeScript consumer 行为；这个 tarball 不是 Registry 上的 `@notnotype/nb-workflow@0.1.2`。未验证真实 durable host、外部 Worker、真实进程恢复、Cosmos 或生产 CI。
-
+本轮验证记录见 [`walkthrough.md`](walkthrough.md) Round 4。当前已验证的是目标 worktree 的 deterministic Memory 行为，以及通过真实 `npm install` 安装当前本地 tarball 后的 Node/TypeScript consumer 行为；本次 `0.2.0` 发布候选 tarball 仍不是 Registry 上的包。未验证真实 durable host、外部 Worker、真实进程恢复、Cosmos 或生产 CI。
 ## 1. 目标
 
 把当前同步 ActivityExecutor 扩展为可被 Cosmos 等 Durable Host 组合的 Deferred Activity 语义，同时保持现有同步 `callAction()` replay 行为。Workflow 作者目标仍是：
@@ -101,7 +101,7 @@ callAction
 2. 选择不破坏 0.1.2 同步 ActivityExecutor 的最小 Port 扩展。已完成。
 3. 实现 Memory 参考语义和 Runner/Backend 集成。已完成。
 4. 完整测试、typecheck、build 和 package smoke 已通过；package smoke 还覆盖真实 npm 安装后的声明解析和 Deferred Activity completion 行为。
-5. 候选 public API 已由当前测试和 tarball consumer 固定；正式稳定承诺仍需发布审查和 durable Backend conformance。当前 npm `0.1.2` 不包含本 worktree 的 Deferred Activity；版本和发布仍需独立授权任务。
+5. 候选 public API 已由当前测试和 tarball consumer 固定；`0.2.0` 是新增 Deferred Activity 公开合同的发布候选。正式稳定承诺仍需 durable Backend conformance；当前 npm `0.1.2` 不包含本 worktree 的 Deferred Activity。
 
 ## 7. 验收门禁
 
@@ -120,4 +120,4 @@ bun run verify:package
 
 进入 Cosmos 前必须提供稳定 commit SHA、最终 public API、Deferred Activity conformance、full test、typecheck、build、package smoke、waiting→completion→resume 和 cancel/late completion 证据。
 
-本 Task 当前不授权 Cosmos Host、Prisma Activity 表、Activity Job、Worker Admin、发布、push、PR 或合并。
+本 Task 当前不授权 Cosmos Host、Prisma Activity 表、Activity Job、Worker Admin、发布后的自动接入、PR 合并或部署；`0.2.0` npm 发布仅按独立发布授权执行。

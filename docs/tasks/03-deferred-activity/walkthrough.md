@@ -1,6 +1,6 @@
 # Task 03 Walkthrough：Deferred Activity
 
-> 状态：Round 4 documentation/audit reconciliation；本地候选实现和 package gates 已通过，Cosmos 仍未进入实现。
+> 状态：Round 4 已完成本地候选门禁；Round 5 进入 `0.2.0` 发布审查，Cosmos 仍未进入实现。
 >
 > Task：[`README.md`](README.md)
 
@@ -270,6 +270,41 @@ git diff --check
 
 Leader 判定：nb-workflow 本地 Kernel 与 package gates 已达到继续下游只读审查的门禁；在形成稳定 commit、完成独立发布授权和 Cosmos PR 基于当前 master 的验证前，不实现 Cosmos Host。
 
+
+## Round 5：`0.2.0` 发布审查与授权执行
+
+日期：2026-08-13
+
+目标：将已通过本地门禁的 Deferred Activity 候选实现以 `0.2.0` 发布；只执行 nb-workflow 的版本、提交、远端协作和 npm 发布，不进入 Cosmos Host。
+
+范围：候选分支 `chore/t03-release-0.2.0`、`package.json` 版本元数据、README/Task 发布状态及既有 package gate。Cosmos、NeuroBook、Harness dirty master、其它 worktree、数据库、migration、API、Worker 和 durable host 均不在范围内。
+
+实际修改：
+
+- 将 package 版本从 `0.1.2` 更新为 `0.2.0`；新增 Deferred Activity 公开合同按用户授权以 minor 版本发布。
+- README 与 Task 文档改为明确 `0.2.0` 发布候选；保留 Memory fixture、真实本地 tarball consumer、Registry consumer、durable Backend 和 Cosmos 集成之间的证据边界。
+- 没有新增 Cosmos 类型、Job/Attempt/Lease/Outbox 字段、依赖、ADR 或 Host Adapter。
+
+发布前证据：
+
+```text
+此前 clean candidate checkpoint `9183a4f`：
+  bun test test/deferred-activity.test.ts -> 9 pass / 0 fail / 24 expect calls
+  bun test test/backend-conformance.test.ts -> 21 pass / 0 fail / 2 expect calls
+  bun test -> 118 pass / 0 fail / 306 expect calls
+  bun run typecheck -> passed
+  bun run build -> passed
+  bun run verify:package -> NODE_PACKAGE_SMOKE_OK / TARBALL_DECLARATION_CONSUMER_OK / ISOLATED_PACKAGE_SMOKE_OK
+  bun run prepublishOnly -> PUBLISH_READY_OK
+```
+
+版本和发布执行仍需在当前 `0.2.0` 元数据提交后重新运行 `prepublishOnly`；npm 身份、2FA、远端 CI、PR/合并和 Registry consumer 在执行后单独记录。`npm whoami` 当前返回 `E401 Unauthorized`，因此 npm 发布身份尚未验证。
+
+偏差：用户授权了完整发布流程，但仓库规则要求先提交并推送候选分支、通过 PR/CI 后再发布；不会直接从未合并分支执行 npm publish。
+
+未验证风险：`0.2.0` Registry tarball、外部 consumer、Node 20、远端 CI、真实 durable Backend、跨进程 waiting 恢复、多 Worker fencing、Cosmos Host/Worker、浏览器、Docker、真实 Provider 和生产部署均未验证。
+
+leader 判定：继续 nb-workflow 发布前门禁；Cosmos Host、固定 Ingest parity、Product API 和 Worker Admin 保持停止。
 
 ## 后续轮次模板
 

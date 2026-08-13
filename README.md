@@ -14,9 +14,7 @@ Workflow script
   -> optional Backend and Host ports
 ```
 
-当前 npm Registry 最新版本仍是 `0.1.2`。本 worktree 的 Deferred Activity 实现
-和后续 package-gate 加固尚未发布到 `0.1.2`；必须完成独立版本、发布审查和授权
-后才会进入 npm。Memory 组合用于测试、demo 和 Backend conformance；它不支持
+当前 npm Registry 最新版本仍是 `0.1.2`；本版本候选将 Deferred Activity 和 package gate 加固发布为 `0.2.0`。发布前必须通过独立版本、发布审查和授权。Memory 组合用于测试、demo 和 Backend conformance；它不支持
 进程重启或多 Worker。
 
 ## 安装
