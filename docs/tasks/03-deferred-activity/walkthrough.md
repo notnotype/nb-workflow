@@ -1,6 +1,6 @@
 # Task 03 Walkthrough：Deferred Activity
 
-> 状态：Round 2 implementation + governance reconciliation；Deferred Activity 已通过本地完整 package 门禁，Cosmos 仍未进入实现。
+> 状态：Round 4 documentation/audit reconciliation；本地候选实现和 package gates 已通过，Cosmos 仍未进入实现。
 >
 > Task：[`README.md`](README.md)
 
@@ -47,7 +47,9 @@ package latest: @notnotype/nb-workflow@0.1.2
 
 先增加行为测试，确定最小 Port 扩展，再实现 Memory 参考语义和 Backend/Runner conformance。Kernel 门禁通过前不进入 Cosmos。
 
-## Round 1：Deferred Activity 实现现状与治理收敛
+## 历史快照：Round 1：Deferred Activity 实现现状与治理收敛
+
+> 本节保留当时的审计和验证数字，仅作为历史快照；当前证据以 Round 2、Round 3 和 Round 4 为准。
 
 日期：2026-08-13
 
@@ -78,7 +80,7 @@ package latest: @notnotype/nb-workflow@0.1.2
 
 上述是源码审查结论；未把它们自动升级为产品决策。若下一轮要改变取消、并发或失败后 pending 的公开语义，先补 red test，再记录决定。
 
-### 当前验证（本轮）
+### 历史验证（Round 1）
 
 ```text
 bun test test/deferred-activity.test.ts
@@ -106,7 +108,9 @@ git diff --check
 
 **继续：先完成 package/build 门禁；在这些门禁和独立审查完成前停止 Cosmos 下游实施。**
 
-## Round 2：取消竞态收口与完整包门禁
+## 历史快照：Round 2：取消竞态收口与完整包门禁
+
+> 本节保留当时的验证边界；Round 3 已补上真实 tarball 的 Deferred Activity 行为与 declaration consumer。
 
 日期：2026-08-13
 
@@ -159,6 +163,113 @@ git diff --check
 未验证风险：Cosmos 当前仍是设计同步/实现暂停；其 Task 06 明确要求先完成独立 `nb-workflow` Kernel API、Memory Backend 和 conformance，再实现 Cosmos Durable Host/Worker convergence。当前 worktree 没有发布版本、远端依赖或稳定 commit 可供 Cosmos 接入。
 
 Leader 判定：`nb-workflow` Deferred Activity 实现和本地包门禁完成；停止 Cosmos 下游实现，等待本地 checkpoint 和用户决定是否授权后续发布/接入任务。
+
+## 历史快照：Round 3：真实 tarball consumer 与发布边界收口
+
+日期：2026-08-13
+
+目标：补齐上一轮 package smoke 的证据缺口，让验证真正消费 `npm pack` 生成的 tarball；同时强化发布前元数据和产物检查。仍不发布、不 push、不创建 PR，不进入 Cosmos Host。
+
+范围：`package.json`、`scripts/isolated-package-smoke.mjs`、`scripts/tarball-declaration-consumer.mjs`、`scripts/check-publish-ready.mjs`、本 Task 文档。没有修改 Cosmos、nb-workflow 其它 worktree、领域代码或数据库。
+
+实际修改：
+
+- `verify:package` 的 declaration consumer 只检查从真实 tarball 解包出的声明可被 strict NodeNext consumer 导入；隔离 tarball smoke 单独执行同一 tarball 的 Deferred Activity runtime 行为。
+- 发布 gate 由 `prepublishOnly` 先重跑 `bun run build`，再检查 metadata、dist 和 pack 内容；两个 tarball 脚本改用 Windows `npm.cmd` 选择，不再使用 `shell: true`。
+- 根 README 明确 npm `0.1.2` 尚未包含本 worktree 的 Deferred Activity。
+
+验证命令与结果：
+
+```text
+node scripts/tarball-declaration-consumer.mjs
+  TARBALL_DECLARATION_CONSUMER_OK
+
+bun run verify:package
+  passed
+  NODE_PACKAGE_SMOKE_OK
+  TARBALL_DECLARATION_CONSUMER_OK
+  ISOLATED_PACKAGE_SMOKE_OK
+  无 DEP0190 shell 警告
+
+git diff --check
+  passed（仅 Windows LF/CRLF 转换提示）
+```
+
+未验证：远端 CI、真实 durable Backend、真实跨进程恢复、真实外部 Worker、Cosmos Host/Worker、浏览器、Docker、真实 Provider，以及 npm 发布后的外部消费者。发布 gate 的成功路径仍需在 metadata 干净的提交/发布 worktree 中验证；当前 dirty worktree 的 gate 拒绝路径仍是预期行为。
+
+偏差：本轮补强了包边界、构建新鲜度和 Windows 子进程调用，但没有创建新版本，也没有改变 npm `0.1.2`。Deferred Activity 仍只存在于本地 Task 03 worktree。
+
+Leader 判定：本地 Kernel 与 tarball package gates 通过；在用户授权独立发布前，保持暂停，不开始 Cosmos Host。
+
+## Round 4：Windows/npm 发布边界与候选合同收口
+
+日期：2026-08-13
+
+目标：处理只读审查发现的 Windows 发布阻断、tarball 手动解压假绿灯、声明 consumer 安装边界和 stale `dist` 风险；同时把当前证据与 npm Registry `0.1.2`、Cosmos 前置条件分开。仍不发布、不 push、不创建 PR，不进入 Cosmos Host。
+
+范围：`package.json`、`scripts/child-processes.mjs`、`scripts/check-publish-ready.mjs`、`scripts/tarball-declaration-consumer.mjs`、`scripts/isolated-package-smoke.mjs`、`test/package-process.test.mjs`、Task 文档。没有修改 `src/`、Cosmos、nb-workflow 其它 worktree、数据库或 migration。
+
+只读审查发现：
+
+- Windows 的 `execFileSync("npm")` 可能找不到命令，直接使用 `npm.cmd` 且 `shell:false` 又会在当前 Node 24 环境返回 `EINVAL`；通过当前 Node 加载 npm CLI，并保持 `shell:false` 才能跨 Bun/Node 开发环境工作。
+- 手动把 tarball 解压到 `node_modules` 不能证明真实安装；两个 consumer 改为在临时项目执行真实 `npm install`。
+- declaration consumer 使用真实 npm 安装后的 package tree 验证公开 Deferred Activity 类型；TypeScript 编译器使用仓库开发依赖，内嵌 start/complete 代码只用于类型检查，runtime 由 isolated smoke 执行。
+- `prepublishOnly` 现在先执行 `bun run verify:package`（包含构建），再检查 metadata、`dist` 和 pack 清单，避免源代码变化后直接发布 stale `dist`。
+
+实际修改：
+
+- 新增 shell-safe 的 `execNpm` helper，Windows 使用同一 Node 进程加载 npm CLI，POSIX 直接执行 npm；新增 focused helper test。
+- 隔离 runtime smoke 通过真实 npm 安装后验证普通 Workflow、Deferred Activity pending→completion、duplicate、conflict、cancel/late，以及 optional TypeScript peer 不被自动安装。
+- declaration consumer 通过真实 npm 安装后的 package tree 验证公开 Deferred Activity 类型。
+- 保留 release gate 对当前 dirty metadata 的拒绝行为，不在 dirty worktree 伪造成功发布证据。
+
+验证快照：
+
+```text
+Deferred Activity implementation base: 1caeecb (feat: add deferred activity contract)
+工作树：dirty
+Registry latest: @notnotype/nb-workflow@0.1.2
+Node: v24.13.0
+npm: 11.6.2
+Bun: 1.3.14
+```
+
+验证命令与结果：
+
+```text
+`bun test test/deferred-activity.test.ts`
+  9 pass / 0 fail / 24 expect calls
+
+`bun test test/backend-conformance.test.ts`
+  21 pass / 0 fail / 2 expect calls
+bun test test/package-process.test.mjs
+  1 pass / 0 fail / 1 expect calls
+
+bun test
+  118 pass / 0 fail / 306 expect calls
+
+bun run typecheck
+  passed
+
+node scripts/tarball-declaration-consumer.mjs
+  TARBALL_DECLARATION_CONSUMER_OK
+
+bun run verify:package
+  passed
+  NODE_PACKAGE_SMOKE_OK
+  TARBALL_DECLARATION_CONSUMER_OK
+  ISOLATED_PACKAGE_SMOKE_OK
+
+git diff --check
+  passed（仅 Windows LF/CRLF 转换提示）
+```
+
+`prepublishOnly` 在当前 dirty metadata 下按预期拒绝（先完成 verify:package，再因 README/package.json dirty 停止）；成功路径未在 clean commit 上运行。远端 CI、Windows Node 20、真实 npm Registry 下载包、npm publish、真实 durable Backend、真实跨进程恢复、多 Worker fencing、Cosmos Host/Worker、浏览器、Docker 和真实 Provider 仍未验证。
+
+重要边界：Round 4 的 tarball 是从当前 worktree 本地生成的候选包，不是 npm Registry 的 `0.1.2`，不改变 Registry 版本；“本地候选实现/候选 public API”也不等同正式发布或 durable host 合同。
+
+Leader 判定：nb-workflow 本地 Kernel 与 package gates 已达到继续下游只读审查的门禁；在形成稳定 commit、完成独立发布授权和 Cosmos PR 基于当前 master 的验证前，不实现 Cosmos Host。
+
 
 ## 后续轮次模板
 

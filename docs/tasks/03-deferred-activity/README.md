@@ -1,6 +1,6 @@
 # Task 03：Deferred Activity
 
-> 状态：Implementation complete；本地 package gates 已通过，release gate pending。
+> 状态：本地候选实现已完成；package gates（含真实 tarball consumer）已通过，但仍未提交、发布或接入 durable host。
 > 日期：2026-08-13
 >
 > 分支：`feat/t03-deferred-activity`
@@ -29,11 +29,11 @@
 | --- | --- | --- | --- |
 | Deferred Activity focused | `bun test test/deferred-activity.test.ts` | pending、completion、failed、conflict、cancel、CAS | 已通过：9 pass / 0 fail / 24 expect calls |
 | Deferred conformance | `bun test test/backend-conformance.test.ts` | Backend/Runner/ValueStore 与 Deferred cases | 已通过：21 pass / 0 fail / 2 expect calls |
-| 全部测试 | `bun test` | 14 个测试文件的完整行为回归 | 已通过：117 pass / 0 fail / 305 expect calls |
+| 全部测试 | `bun test` | 15 个测试文件的完整行为回归 | 已通过：118 pass / 0 fail / 306 expect calls |
 | `goal:check` | 不存在于 `package.json`、Task、CI 或 scripts | 不适用 | 无此门禁 |
 | Typecheck | `bun run typecheck` | strict TS src/test | 已通过 |
 | Build | `bun run build` | bundle + declarations | 已通过 |
-| Package/install smoke | `bun run verify:package` | NodeNext consumer、Node smoke、隔离 tarball | 已通过：`NODE_PACKAGE_SMOKE_OK`、`ISOLATED_PACKAGE_SMOKE_OK` |
+| Package/install smoke | `bun run verify:package` | 真实 tarball 的 NodeNext declaration consumer、Node smoke、Deferred Activity 隔离安装 smoke | 已通过：`NODE_PACKAGE_SMOKE_OK`、`TARBALL_DECLARATION_CONSUMER_OK`、`ISOLATED_PACKAGE_SMOKE_OK`（Round 4 dirty worktree 快照） |
 | CI 对照 | `.github/workflows/ci.yml` | frozen install、test、typecheck、verify:package、demo、pack dry-run | 未运行远端 CI |
 
 focused/conformance 使用 deterministic Memory fixture；不等同真实 durable Backend、外部 Worker 或 Cosmos 集成。package smoke 也不证明真实 Provider/生产部署。
@@ -54,7 +54,7 @@ focused/conformance 使用 deterministic Memory fixture；不等同真实 durabl
 
 ## 当前验证
 
-本轮验证记录见 [`walkthrough.md`](walkthrough.md) Round 2。当前已验证的是目标 worktree 的 deterministic Memory 行为；未验证真实 durable host、外部 Worker、真实进程恢复、远程 package consumer、Cosmos 或生产 CI。
+本轮验证记录见 [`walkthrough.md`](walkthrough.md) Round 4。当前已验证的是目标 worktree 的 deterministic Memory 行为，以及通过真实 `npm install` 安装当前本地 tarball 后的 Node/TypeScript consumer 行为；这个 tarball 不是 Registry 上的 `@notnotype/nb-workflow@0.1.2`。未验证真实 durable host、外部 Worker、真实进程恢复、Cosmos 或生产 CI。
 
 ## 1. 目标
 
@@ -100,8 +100,8 @@ callAction
 1. 增加失败测试和 conformance。已完成。
 2. 选择不破坏 0.1.2 同步 ActivityExecutor 的最小 Port 扩展。已完成。
 3. 实现 Memory 参考语义和 Runner/Backend 集成。已完成。
-4. 完整测试、typecheck、build 和 package smoke 已通过。
-5. 稳定 public API 已记录；commit、版本和发布仍需独立授权任务。
+4. 完整测试、typecheck、build 和 package smoke 已通过；package smoke 还覆盖真实 npm 安装后的声明解析和 Deferred Activity completion 行为。
+5. 候选 public API 已由当前测试和 tarball consumer 固定；正式稳定承诺仍需稳定 commit、发布审查和 durable Backend conformance。当前 npm `0.1.2` 不包含本 worktree 的 Deferred Activity，commit、版本和发布仍需独立授权任务。
 
 ## 7. 验收门禁
 
