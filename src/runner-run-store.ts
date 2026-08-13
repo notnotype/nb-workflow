@@ -1,5 +1,6 @@
 import {
     assertBackendCapabilities,
+    WorkflowBackendConflictError,
     type WorkflowBackend,
 } from "./backend";
 import { readAgentExtensionContext } from "./agent-run-context";
@@ -117,6 +118,51 @@ export class RunnerRunStore {
         return run;
     }
 
+    /** 丢弃当前进程中的候选投影，直接从 Backend 重新 hydrate。 */
+    async reloadRecord(runId: string): Promise<RunRecord> {
+        const state = await this.backend.loadRun(runId);
+        if (!state) {
+            throw new Error("run " + runId + " 不存在");
+        }
+        const hydrated = await this.hydrate(state);
+        assertBackendCapabilities(this.capabilities, hydrated.def.requires);
+        const current = this.records.get(runId);
+        if (!current) {
+            this.records.set(runId, hydrated);
+            return hydrated;
+        }
+
+        // Keep the object identity used by an in-flight execution. A control
+        // command may reload after a CAS conflict while the original
+        // continuation still holds the RunRecord reference; replacing the
+        // Map entry would let the continuation keep writing the stale object.
+        const initialization = current.initialization;
+        const persistence = current.persistence;
+        const workspace = current.workspace;
+        const ephemeralSessions = current.ephemeralSessions;
+        const removeExternalAbort = current.removeExternalAbort;
+        const abortController = current.abortController;
+        const abortRequested = current.abortRequested === true
+            || hydrated.abortRequested === true;
+        const cancelRequestedAt = current.cancelRequestedAt
+            ?? hydrated.cancelRequestedAt;
+        Object.assign(current, hydrated, {
+            abortController,
+            abortRequested,
+            cancelRequestedAt,
+            initialization,
+            persistence,
+            workspace,
+            ephemeralSessions,
+            removeExternalAbort,
+            persistencePoisoned: undefined,
+        });
+        if (hydrated.abortRequested && !abortController.signal.aborted) {
+            abortController.abort(new WorkflowCancelledError());
+        }
+        return current;
+    }
+
     async persist(run: RunRecord): Promise<void> {
         await run.initialization;
         if (run.persistencePoisoned) {
@@ -138,10 +184,21 @@ export class RunnerRunStore {
         try {
             await operation;
         } catch (error) {
-            run.persistencePoisoned = error;
-            // 保留本地投影：view()/loadView() 保持一致地返回最后已知
-            // 快照，后续 persist 由 poisoned 标志直接拒绝。
-            unbindExternalAbort(run);
+            // 丢弃尚未提交的候选投影。这样 view() 与 loadView() 都只
+            // 暴露 Backend 最后成功的快照；Backend 不可读时才保留候选。
+            let reloaded = false;
+            try {
+                await this.reloadRecord(run.runId);
+                reloaded = true;
+            } catch {
+                // 保留原始错误；调用方会看到明确的持久化失败。
+            }
+            if (!reloaded || !isBackendConflict(error)) {
+                // 非 CAS 错误会 poison 当前 Run，防止后续业务继续成功
+                // 但无法把 journal/终态保存下来。
+                run.persistencePoisoned = error;
+                unbindExternalAbort(run);
+            }
             throw error instanceof WorkflowPersistenceError
                 ? error
                 : new WorkflowPersistenceError(run.runId, error);
@@ -176,6 +233,7 @@ export class RunnerRunStore {
             workspace: null,
             ephemeralSessions: new Set(),
             status: state.status,
+            resumeRequired: state.resumeRequired === true,
             cancelRequestedAt: state.cancelRequestedAt,
             budget: structuredClone(state.budget),
             checkpoint: state.checkpoint
@@ -191,6 +249,8 @@ export class RunnerRunStore {
             )),
             pendingAsks: structuredClone(state.pendingAsks),
             pendingWaits: structuredClone(state.pendingWaits),
+            pendingActivities: structuredClone(state.pendingActivities ?? []),
+            activityCompletions: structuredClone(state.activityCompletions ?? []),
             logs: [...state.logs],
             progress: state.progress ? { ...state.progress } : null,
             revision: state.revision,
@@ -208,4 +268,13 @@ export class RunnerRunStore {
             ? undefined
             : await this.values.decode(state.result);
     }
+}
+
+function isBackendConflict(error: unknown): boolean {
+    if (error instanceof WorkflowBackendConflictError) {
+        return true;
+    }
+    return error instanceof Error
+        && error.name === "WorkflowPersistenceError"
+        && error.cause instanceof WorkflowBackendConflictError;
 }

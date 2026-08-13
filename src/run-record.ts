@@ -4,8 +4,10 @@ import type { WorkspacePort } from "./ports";
 import type {
     ActivityRecord,
     AnyWorkflowDefinition,
+    ActivityCompletionRecord,
     JsonValue,
     PendingAsk,
+    PendingActivity,
     PendingWait,
     ProgressState,
     RunStatus,
@@ -30,6 +32,7 @@ export type RunRecord = {
     /** 本进程内待归档的 ephemeral Session；waiting 挂起时保留，终态归档后清空。 */
     ephemeralSessions: Set<SessionId>;
     status: RunStatus;
+    resumeRequired: boolean;
     cancelRequestedAt: string | null;
     budget: JsonValue | null;
     checkpoint: WorkflowValue | null;
@@ -39,6 +42,8 @@ export type RunRecord = {
     journal: Map<string, ActivityRecord>;
     pendingAsks: PendingAsk[];
     pendingWaits: PendingWait[];
+    pendingActivities: PendingActivity[];
+    activityCompletions: ActivityCompletionRecord[];
     logs: string[];
     progress: ProgressState | null;
     revision: number;
@@ -59,6 +64,7 @@ export function runRecordToView(run: RunRecord): RunView {
         workflowVersion: reference.version,
         workflowManifestHash: reference.manifestHash,
         status: run.status,
+        resumeRequired: run.resumeRequired,
         cancelRequestedAt: run.cancelRequestedAt,
         budget: cloneNullable(run.budget),
         checkpoint: cloneNullable(run.checkpoint),
@@ -68,6 +74,8 @@ export function runRecordToView(run: RunRecord): RunView {
         error: run.error,
         pendingAsks: structuredClone(run.pendingAsks),
         pendingWaits: structuredClone(run.pendingWaits),
+        pendingActivities: structuredClone(run.pendingActivities),
+        activityCompletions: structuredClone(run.activityCompletions),
         logs: [...run.logs],
         progress: run.progress ? { ...run.progress } : null,
         journal: sortedJournal(run.journal.values()),
@@ -87,6 +95,7 @@ export function workflowStateToView(
         workflowVersion: state.definition.version,
         workflowManifestHash: state.definition.manifestHash,
         status: state.status,
+        resumeRequired: state.resumeRequired === true,
         cancelRequestedAt: state.cancelRequestedAt,
         budget: cloneNullable(state.budget),
         checkpoint: cloneNullable(state.checkpoint),
@@ -96,6 +105,8 @@ export function workflowStateToView(
         error: state.error,
         pendingAsks: structuredClone(state.pendingAsks),
         pendingWaits: structuredClone(state.pendingWaits),
+        pendingActivities: structuredClone(state.pendingActivities ?? []),
+        activityCompletions: structuredClone(state.activityCompletions ?? []),
         logs: [...state.logs],
         progress: state.progress ? { ...state.progress } : null,
         journal: structuredClone(state.journal),
@@ -118,6 +129,7 @@ export function runRecordToState(run: RunRecord): WorkflowRunState {
             run.defaultModel,
         ),
         status: run.status,
+        resumeRequired: run.resumeRequired,
         cancelRequestedAt: run.cancelRequestedAt,
         budget: cloneNullable(run.budget),
         checkpoint: cloneNullable(run.checkpoint),
@@ -127,6 +139,8 @@ export function runRecordToState(run: RunRecord): WorkflowRunState {
         error: run.error,
         pendingAsks: structuredClone(run.pendingAsks),
         pendingWaits: structuredClone(run.pendingWaits),
+        pendingActivities: structuredClone(run.pendingActivities),
+        activityCompletions: structuredClone(run.activityCompletions),
         logs: [...run.logs],
         progress: run.progress ? { ...run.progress } : null,
         journal: sortedJournal(run.journal.values()),

@@ -120,6 +120,50 @@ export type ActivityRecord = {
 
 export type ActivityIdentity = Omit<ActivityRecord, "result">;
 
+/**
+ * 外部 Activity 已创建但尚未返回结果时的持久等待投影。
+ * receipt 由宿主生成，Kernel 只把它当作不透明的完成寻址凭证。
+ */
+export type PendingActivity = {
+    kind: "action";
+    key: string;
+    path: string;
+    seq: number;
+    fingerprint: string;
+    reference: string;
+    receipt: string;
+    reason: string;
+    /** 创建该等待投影前观察到的 Workflow state revision。 */
+    stateRevision: number;
+    createdAt: string;
+};
+
+/**
+ * Deferred Activity 的终态收据。成功结果仍会写入 journal；此投影保留
+ * receipt，并让失败/取消结果可以在 replay 时变成确定性的 Workflow error。
+ */
+export type ActivityCompletionRecord = PendingActivity & {
+    status: "completed" | "failed" | "cancelled";
+    completionFingerprint: string;
+    result?: WorkflowValue;
+    error?: string;
+    completedAt: string;
+};
+
+export type DeferredActivityStartResult =
+    | { status: "completed"; result: JsonValue }
+    | { status: "pending"; receipt: string; reason: string };
+
+export type DeferredActivityCompletionInput = {
+    activityKey: string;
+    receipt: string;
+    reference: string;
+    fingerprint: string;
+    status: "completed" | "failed" | "cancelled";
+    result?: JsonValue;
+    error?: string;
+};
+
 export type ActivityCallOptions = {
     /** 宿主可用的稳定业务键；不替代 Kernel 的 path/sequence identity。 */
     key?: string;
@@ -349,6 +393,8 @@ export type RunView = {
     workflowVersion: string;
     workflowManifestHash: string;
     status: RunStatus;
+    /** 已接受外部 completion、等待 Kernel 继续执行的 crash-safe 标记。 */
+    resumeRequired: boolean;
     cancelRequestedAt: string | null;
     budget: JsonValue | null;
     checkpoint: WorkflowValue | null;
@@ -356,6 +402,8 @@ export type RunView = {
     error?: string;
     pendingAsks: PendingAsk[];
     pendingWaits: PendingWait[];
+    pendingActivities: PendingActivity[];
+    activityCompletions: ActivityCompletionRecord[];
     logs: string[];
     progress: ProgressState | null;
     journal: ActivityRecord[];
@@ -372,6 +420,8 @@ export type WorkflowRunState = {
     /** 版本化 Extension 的不可变 JSON 启动上下文。 */
     extensionContext: JsonValue;
     status: RunStatus;
+    /** 旧状态缺省为 false；新状态在 completion 持久化后置为 true。 */
+    resumeRequired?: boolean;
     cancelRequestedAt: string | null;
     budget: JsonValue | null;
     checkpoint: WorkflowValue | null;
@@ -379,6 +429,8 @@ export type WorkflowRunState = {
     error?: string;
     pendingAsks: PendingAsk[];
     pendingWaits: PendingWait[];
+    pendingActivities?: PendingActivity[];
+    activityCompletions?: ActivityCompletionRecord[];
     logs: string[];
     progress: ProgressState | null;
     journal: ActivityRecord[];

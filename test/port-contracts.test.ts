@@ -178,6 +178,32 @@ describe("stable Port contracts", () => {
         }
     });
 
+    test("externalReceipts requires the Deferred Activity Port", () => {
+        const backend = new MemoryWorkflowBackend();
+        Object.defineProperty(backend, "capabilities", {
+            value: {
+                ...backend.capabilities,
+                durability: "durable",
+                processRestart: true,
+                externalReceipts: true,
+            } satisfies BackendCapabilities,
+        });
+        const required: WorkflowDefinition = {
+            key: "requires-deferred-port",
+            manifestHash: "sha256:requires-deferred-port-v1",
+            requires: { externalReceipts: true },
+            run: async (workflow) => await workflow.callAction(
+                "source.fetch@1",
+                null,
+            ),
+        };
+        const runner = new WorkflowRunner({}, {}, { backend });
+
+        expect(() => runner.begin(required, null)).toThrow(
+            WorkflowBackendCapabilityError,
+        );
+    });
+
     test("ask specs are validated before entering the pending projection", async () => {
         const runner = new WorkflowRunner({});
         const failed = await runner.start({

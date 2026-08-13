@@ -5,6 +5,7 @@ import {
     MemoryValueStore,
     WorkflowBackendCapabilityError,
     assertBackendCapabilities,
+    deferredActivityConformanceCases,
     valueStoreConformanceCases,
     workflowBackendConformanceCases,
     workflowRunnerBackendConformanceCases,
@@ -53,6 +54,23 @@ describe("MemoryWorkflowBackend conformance", () => {
             },
         )).toThrow(WorkflowBackendCapabilityError);
     });
+
+    for (const conformanceCase of deferredActivityConformanceCases) {
+        test("Deferred Activity: " + conformanceCase.name, async () => {
+            const deferred = {
+                startAction: async () => ({
+                    status: "pending" as const,
+                    receipt: "receipt-" + conformanceCase.name,
+                    reason: "conformance",
+                }),
+            };
+            await conformanceCase.run(() => ({
+                backend: new MemoryWorkflowBackend(),
+                deferredActivities: deferred,
+                values: new MemoryValueStore(),
+            }));
+        });
+    }
 });
 
 describe("MemoryValueStore conformance", () => {

@@ -1,10 +1,15 @@
 import type { WorkflowBackend } from "./backend";
 import { MemoryActivityExecutor } from "./activities";
 import { MemoryDefinitionRegistry } from "./definitions";
-import type { ValueStore } from "./ports";
+import type {
+    DeferredActivityExecutor,
+    ValueStore,
+} from "./ports";
 import { WorkflowRunner } from "./runner";
 import type {
+    DeferredActivityCompletionInput,
     JsonValue,
+    PendingActivity,
     WorkflowDefinition,
     WorkflowRunState,
 } from "./types";
@@ -22,6 +27,203 @@ export type ValueStoreConformanceCase = {
     name: string;
     run(factory: ValueStoreFactory): Promise<void>;
 };
+
+export type DeferredActivityConformanceHarness = {
+    backend: WorkflowBackend;
+    deferredActivities: DeferredActivityExecutor;
+    values: ValueStore;
+    definitions?: MemoryDefinitionRegistry;
+};
+
+export type DeferredActivityConformanceFactory = () =>
+    Promise<DeferredActivityConformanceHarness>
+    | DeferredActivityConformanceHarness;
+
+export type DeferredActivityConformanceCase = {
+    name: string;
+    run(factory: DeferredActivityConformanceFactory): Promise<void>;
+};
+
+export const deferredActivityConformanceCases:
+readonly DeferredActivityConformanceCase[] = [
+    {
+        name: "pending Activity is persisted with identity and receipt",
+        async run(factory) {
+            const harness = await factory();
+            const definition = deferredDefinition("deferred-conformance-pending");
+            const runner = deferredRunner(harness, definition);
+            const waiting = await runner.start(definition, null);
+            equal(waiting.status, "waiting");
+            equal(waiting.pendingActivities.length, 1);
+            equal(waiting.pendingActivities[0]?.key, "root#0");
+            equal(waiting.pendingActivities[0]?.reference, "source.fetch@1");
+            equal(
+                (await harness.backend.loadRun(waiting.runId))
+                    ?.pendingActivities?.length,
+                1,
+            );
+        },
+    },
+    {
+        name: "completion resumes the original call across Runner instances",
+        async run(factory) {
+            const harness = await factory();
+            const definitions = harness.definitions ?? new MemoryDefinitionRegistry();
+            const definition = deferredDefinition("deferred-conformance-resume");
+            const first = deferredRunner(harness, definition, definitions);
+            const waiting = await first.start(definition, null);
+            const pending = requirePending(waiting.pendingActivities[0]);
+            const second = deferredRunner(harness, definition, definitions);
+            const completed = await second.completeActivity(
+                waiting.runId,
+                completedInput(pending, { value: "completed" }),
+            );
+            equal(completed.status, "completed");
+            equal(completed.result, { value: "completed" });
+            equal(completed.pendingActivities, []);
+            equal(completed.journal.length, 1);
+        },
+    },
+    {
+        name: "same completion is idempotent across two Runners",
+        async run(factory) {
+            const harness = await factory();
+            const definitions = harness.definitions ?? new MemoryDefinitionRegistry();
+            const definition = deferredDefinition("deferred-conformance-duplicate");
+            const first = deferredRunner(harness, definition, definitions);
+            const waiting = await first.start(definition, null);
+            const pending = requirePending(waiting.pendingActivities[0]);
+            const second = deferredRunner(harness, definition, definitions);
+            const input = completedInput(pending, { value: "same" });
+            const results = await Promise.all([
+                first.completeActivity(waiting.runId, input),
+                second.completeActivity(waiting.runId, input),
+            ]);
+            equal(
+                results.filter((result) => result?.result !== undefined).length,
+                1,
+            );
+            equal(
+                results.every((result) => result?.activityCompletions.length === 1),
+                true,
+            );
+            equal((await harness.backend.loadRun(waiting.runId))?.journal.length, 1);
+        },
+    },
+    {
+        name: "different completion conflicts and cannot replace accepted result",
+        async run(factory) {
+            const harness = await factory();
+            const definitions = harness.definitions ?? new MemoryDefinitionRegistry();
+            const definition = deferredDefinition("deferred-conformance-conflict");
+            const first = deferredRunner(harness, definition, definitions);
+            const waiting = await first.start(definition, null);
+            const pending = requirePending(waiting.pendingActivities[0]);
+            const second = deferredRunner(harness, definition, definitions);
+            const outcomes = await Promise.allSettled([
+                first.completeActivity(
+                    waiting.runId,
+                    completedInput(pending, { value: "left" }),
+                ),
+                second.completeActivity(
+                    waiting.runId,
+                    completedInput(pending, { value: "right" }),
+                ),
+            ]);
+            equal(
+                outcomes.filter((outcome) => outcome.status === "fulfilled").length,
+                1,
+            );
+            equal(
+                outcomes.filter((outcome) => outcome.status === "rejected").length,
+                1,
+            );
+            const stored = await harness.backend.loadRun(waiting.runId);
+            equal(stored?.journal.length, 1);
+            equal(stored?.activityCompletions?.length, 1);
+        },
+    },
+    {
+        name: "cancel converts pending Activity to a tombstone and rejects late completion",
+        async run(factory) {
+            const harness = await factory();
+            const definition = deferredDefinition("deferred-conformance-cancel");
+            const runner = deferredRunner(harness, definition);
+            const waiting = await runner.start(definition, null);
+            const pending = requirePending(waiting.pendingActivities[0]);
+            const cancelled = await runner.cancel(waiting.runId);
+            equal(cancelled.status, "cancelled");
+            equal(cancelled.pendingActivities, []);
+            equal(cancelled.activityCompletions[0]?.status, "cancelled");
+            await rejects(() => runner.completeActivity(
+                waiting.runId,
+                completedInput(pending, { late: true }),
+            ));
+        },
+    },
+    {
+        name: "large completion uses ValueRef and replays without a second start",
+        async run(factory) {
+            const harness = await factory();
+            const definitions = harness.definitions ?? new MemoryDefinitionRegistry();
+            const definition = deferredDefinition("deferred-conformance-value-ref");
+            const first = deferredRunner(harness, definition, definitions, 16);
+            const waiting = await first.start(definition, null);
+            const pending = requirePending(waiting.pendingActivities[0]);
+            const value = { value: "large-".repeat(40) };
+            const completed = await first.completeActivity(
+                waiting.runId,
+                completedInput(pending, value),
+            );
+            equal(completed.journal[0]?.result.kind, "ref");
+            equal(completed.result, value);
+            const second = deferredRunner(harness, definition, definitions, 16);
+            const rerun = await second.rerun(waiting.runId);
+            equal(rerun.result, value);
+        },
+    },
+    {
+        name: "resumeRequired allows recovery of an accepted completion after a host crash",
+        async run(factory) {
+            const harness = await factory();
+            const definitions = harness.definitions ?? new MemoryDefinitionRegistry();
+            const definition = deferredDefinition("deferred-conformance-resume-required");
+            const first = deferredRunner(harness, definition, definitions);
+            const waiting = await first.start(definition, null);
+            const pending = requirePending(waiting.pendingActivities[0]);
+            const storedWaiting = requireStored(
+                await harness.backend.loadRun(waiting.runId),
+            );
+            const result = { value: "after-crash" };
+            const encoded = {
+                kind: "inline" as const,
+                value: result,
+            };
+            await harness.backend.saveRun({
+                ...storedWaiting,
+                status: "running",
+                resumeRequired: true,
+                pendingActivities: [],
+                activityCompletions: [{
+                    ...pending,
+                    status: "completed" as const,
+                    completionFingerprint: "sha256:conformance-completion",
+                    result: encoded,
+                    completedAt: "2026-08-13T00:00:01.000Z",
+                }],
+                journal: [{
+                    ...pending,
+                    result: encoded,
+                }],
+            }, storedWaiting.revision);
+            const second = deferredRunner(harness, definition, definitions);
+            const recovered = await second.rerun(waiting.runId);
+            equal(recovered.status, "completed");
+            equal(recovered.resumeRequired, false);
+            equal(recovered.result, result);
+        },
+    },
+];
 
 /**
  * 可被宿主 Backend 直接复用的最小一致性套件。
@@ -331,6 +533,60 @@ function requireRun(run: WorkflowRunState | null): WorkflowRunState {
         throw new Error("Expected workflow run to exist.");
     }
     return run;
+}
+
+function deferredDefinition(key: string): WorkflowDefinition {
+    return {
+        key,
+        version: "1",
+        manifestHash: "sha256:" + key,
+        run: async (workflow) => await workflow.callAction("source.fetch@1", {
+            sourceId: key,
+        }),
+    };
+}
+
+function deferredRunner(
+    harness: DeferredActivityConformanceHarness,
+    definition: WorkflowDefinition,
+    definitions = harness.definitions ?? new MemoryDefinitionRegistry(),
+    inlineValueLimitBytes?: number,
+): WorkflowRunner {
+    return new WorkflowRunner({}, {}, {
+        backend: harness.backend,
+        definitions,
+        deferredActivities: harness.deferredActivities,
+        values: harness.values,
+        ...(inlineValueLimitBytes === undefined ? {} : { inlineValueLimitBytes }),
+    });
+}
+
+function requirePending(value: PendingActivity | undefined): PendingActivity {
+    if (!value) {
+        throw new Error("Expected Deferred Activity to be pending.");
+    }
+    return value;
+}
+
+function completedInput(
+    pending: PendingActivity,
+    result: JsonValue,
+): DeferredActivityCompletionInput {
+    return {
+        activityKey: pending.key,
+        receipt: pending.receipt,
+        reference: pending.reference,
+        fingerprint: pending.fingerprint,
+        status: "completed",
+        result,
+    };
+}
+
+function requireStored(value: WorkflowRunState | null): WorkflowRunState {
+    if (!value) {
+        throw new Error("Expected stored workflow run.");
+    }
+    return value;
 }
 
 function equal(actual: unknown, expected: unknown): void {

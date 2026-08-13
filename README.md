@@ -212,36 +212,22 @@ bun run verify:package
 
 入口是 `WorkflowRunner`，其余公共能力从 `@notnotype/nb-workflow` 顶层导出：
 
-- **Runner**：`WorkflowRunner`；`start`/`begin` 启动，
-  `resume`/`rerun`/`cancel`/`signal` 控制，`view`/`loadView`/`list`/
-  `listStored` 查询。
-- **定义类型**：`WorkflowDefinition`（Core）、`AgentWorkflowDefinition`
-  （Extension）、`WorkflowContext`、`AgentWorkflowContext`、`RunView`、
-  `WorkflowValue`、`ValueRef`、`AskSpec`、`BackendCapabilities`、
-  `BackendRequirements`。
-- **Host Port**：`WorkflowBackend`、`ActivityExecutor`、`DefinitionRegistry`、
-  `ValueStore`、`EventSink`、`SignalStore`、`TimerStore`、
-  `ChildWorkflowStore`、`Clock`、`IdGenerator`、`RandomSource`，以及可选
-  `SessionPort`、`AgentPort`、`WorkspacePort`。
-- **Memory 实现**：`MemoryWorkflowBackend`、`MemoryActivityExecutor`、
-  `MemoryDefinitionRegistry`、`MemoryValueStore`、`MemoryEventSink`、
-  `MemorySignalStore`、`MemoryTimerStore`、`MemoryChildWorkflowStore`、
-  `MemorySessionStore`、`MockAgentPort`、`createMemoryWorkspace`。
-- **Conformance**：`workflowBackendConformanceCases`、
-  `workflowRunnerBackendConformanceCases`、`valueStoreConformanceCases`，
-  Cosmos 等宿主 Backend 可以直接复用。
-- **工具**：`fingerprint`、`canonicalJson`、`assertJsonValue`、
-  `definitionReference`、`definitionManifestHash`、
-  `assertVersionedReference`、`validateSignalReference`、
-  `validateTimerDuration`、`validateWorkflowEvent`。
+- **Runner**：`WorkflowRunner`；`start`/`begin` 启动，`resume`/`rerun`/`cancel`/`signal`/`completeActivity` 控制，`view`/`loadView`/`list`/`listStored` 查询。
+- **定义类型**：`WorkflowDefinition`（Core）、`AgentWorkflowDefinition`（Extension）、`WorkflowContext`、`AgentWorkflowContext`、`RunView`、`WorkflowValue`、`ValueRef`、`PendingActivity`、`ActivityCompletionRecord`、`DeferredActivityStartResult`、`DeferredActivityCompletionInput`、`BackendCapabilities`、`BackendRequirements`。
+- **Host Port**：`WorkflowBackend`、`ActivityExecutor`、`DeferredActivityExecutor`、`DefinitionRegistry`、`ValueStore`、`EventSink`、`SignalStore`、`TimerStore`、`ChildWorkflowStore`、`Clock`、`IdGenerator`、`RandomSource`，以及可选 `SessionPort`、`AgentPort`、`WorkspacePort`。
+- **Memory 实现**：`MemoryWorkflowBackend`、`MemoryActivityExecutor`、`MemoryDefinitionRegistry`、`MemoryValueStore`、`MemoryEventSink`、`MemorySignalStore`、`MemoryTimerStore`、`MemoryChildWorkflowStore`、`MemorySessionStore`、`MockAgentPort`、`createMemoryWorkspace`。
+- **Deferred Activity 错误**：`DeferredActivityNotFoundError`、`DeferredActivityCompletionConflictError`、`DeferredActivityLateCompletionError`、`DeferredActivityFailedError`。
+- **Conformance**：`deferredActivityConformanceCases`、`workflowBackendConformanceCases`、`workflowRunnerBackendConformanceCases`、`valueStoreConformanceCases`；Cosmos 等宿主 Backend 可以直接复用 Deferred Activity conformance，但必须自行提供 durable completion/receipt 能力。
+- **工具**：`fingerprint`、`canonicalJson`、`assertJsonValue`、`definitionReference`、`definitionManifestHash`、`assertVersionedReference`、`validateSignalReference`、`validateTimerDuration`、`validateWorkflowEvent`。
 - **投影**：`skeletonMermaid`、`extractCfg`、`traceGraph`。
 
-错误类型（`WorkflowPersistenceError`、`WorkflowBackendConflictError`、
-`WorkflowDefinitionConflictError`、`SignalConflictError` 等）全部从顶层导出，
-可按 `instanceof` 区分基础设施错误与业务失败。
+`DeferredActivityExecutor` 是可选宿主端口：`startAction()` 返回已完成结果，或返回不透明 `receipt` 使 Run 进入 waiting。宿主必须按 `context.idempotencyKey` 幂等创建外部工作，或能用该 key 重新发现已有工作，因为 Kernel 可能在 receipt 落库前崩溃。宿主随后通过 `WorkflowRunner.completeActivity()` 提交包含 activity key、receipt、reference 和 fingerprint 的 completion。成功结果写入原 Activity journal；相同 completion 幂等，不同 completion 冲突，取消或终态后的迟到 completion 被拒绝。Memory Backend 仍不支持真实进程恢复、多 Worker 或 durable external receipt。
+
+错误类型（`WorkflowPersistenceError`、`WorkflowBackendConflictError`、`WorkflowDefinitionConflictError`、`DeferredActivityCompletionConflictError` 等）全部从顶层导出，可按 `instanceof` 区分基础设施错误、Activity completion 冲突和业务失败。
 
 实施记录见
-[`docs/tasks/01-kernel-stabilization/`](docs/tasks/01-kernel-stabilization/README.md)。
+[`docs/tasks/01-kernel-stabilization/`](docs/tasks/01-kernel-stabilization/README.md) 和
+[`docs/tasks/03-deferred-activity/`](docs/tasks/03-deferred-activity/README.md)。
 
 ## License
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+    DeferredActivityNotFoundError,
     MemoryActivityExecutor,
     WorkflowRunner,
 } from "../src/index";
@@ -46,5 +47,11 @@ describe("public package API", () => {
         };
 
         expect(definition.key).toBe("public-agent-extension");
+    });
+
+    test("Deferred Activity errors are exported from the package root", () => {
+        expect(new DeferredActivityNotFoundError("root#0")).toBeInstanceOf(
+            Error,
+        );
     });
 });

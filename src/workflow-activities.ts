@@ -49,19 +49,10 @@ function createActionCaller(
     ): Promise<TOutput> => {
         assertVersionedReference(actionReference);
         const normalized = normalizeActivityOptions(options);
-        return await runtime.activity(
-            "action",
-            {
-                reference: actionReference,
-                input,
-                options: activityOptionsFingerprint(normalized),
-            },
-            async (context) => await runtime.activities.callAction({
-                reference: actionReference,
-                input,
-                options: normalized,
-                context,
-            }),
+        return await runtime.deferredAction(
+            actionReference,
+            input,
+            normalized,
         ) as TOutput;
     };
 }
