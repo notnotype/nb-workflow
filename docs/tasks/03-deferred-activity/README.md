@@ -1,16 +1,15 @@
 # Task 03：Deferred Activity
 
-> 状态：`0.2.0` 发布候选已完成本地门禁，待提交、推送、PR/合并和 npm 发布；尚未接入 durable host。
+> 状态：`0.2.0` 已发布，并已通过 Registry Node/Bun runtime 与 TypeScript declaration consumer；尚未接入 durable host。
 > 日期：2026-08-13
 >
 > 分支：`chore/t03-release-0.2.0`
 >
-> 当前基线：`origin/master@cb4c8146684185971c8d9f02367811456471bcbd`
+> 发布合并提交：`origin/master@af162ea114c2fddddf3e1cde2c654d357b217fb2`
 >
 > Walkthrough：[`walkthrough.md`](walkthrough.md)
 >
 > 保护边界：nb-workflow dirty master、t01/t02 worktree、NeuroBook 外部 worktree 与 Cosmos worktree 均不属于本 Task 修改或提交范围。目标 worktree 中既有实现和未提交文件属于本 Task 候选变更，提交前必须逐文件确认。
->
 
 ## 责任与协作矩阵
 
@@ -34,8 +33,9 @@
 | `goal:check` | 不存在于 `package.json`、Task、CI 或 scripts | 不适用 | 无此门禁 |
 | Typecheck | `bun run typecheck` | strict TS src/test | 已通过 |
 | Build | `bun run build` | bundle + declarations | 已通过 |
-| Package/install smoke | `bun run verify:package` | 真实 tarball 的 NodeNext declaration consumer、Node smoke、Deferred Activity 隔离安装 smoke | 已通过：`NODE_PACKAGE_SMOKE_OK`、`TARBALL_DECLARATION_CONSUMER_OK`、`ISOLATED_PACKAGE_SMOKE_OK`（Round 4 dirty worktree 快照） |
-| CI 对照 | `.github/workflows/ci.yml` | frozen install、test、typecheck、verify:package、demo、pack dry-run | 未运行远端 CI |
+| Package/install smoke | `bun run verify:package` | 真实本地 tarball 的 NodeNext declaration consumer、Node smoke、Deferred Activity 隔离安装 smoke | 已通过：`NODE_PACKAGE_SMOKE_OK`、`TARBALL_DECLARATION_CONSUMER_OK`、`ISOLATED_PACKAGE_SMOKE_OK` |
+| Registry consumer | `npm install @notnotype/nb-workflow@0.2.0` + Node/Bun smoke + TypeScript declaration consumer | 实际 npm Registry 包、公开导出、pending→completion→resume、duplicate/conflict/late completion | 已通过：`REGISTRY_CONSUMER_OK version=0.2.0 exports=6`、`BUN_REGISTRY_IMPORT_OK function function`、TypeScript tsc passed |
+| CI 对照 | `.github/workflows/ci.yml` / PR #8 `verify` | frozen install、test、typecheck、verify:package、demo、pack dry-run | 已通过；PR #8 已合并 |
 
 focused/conformance 使用 deterministic Memory fixture；不等同真实 durable Backend、外部 Worker 或 Cosmos 集成。package smoke 也不证明真实 Provider/生产部署。
 
@@ -54,8 +54,7 @@ focused/conformance 使用 deterministic Memory fixture；不等同真实 durabl
 本轮已用行为测试收口 cancel 与执行期最终 persist 的 CAS 竞态、completion 与 cancel 竞争、非法 completion payload、capability gate 和 public error export。以下是有意保留的宿主边界，而不是本 Task 的未完成实现：同一 Runner 的并发控制命令不排队；Activity-level cancelled 只作为内部 completion tombstone，外部 Job 是否真正终止由宿主决定；失败 Run 的外部工作补偿由宿主按 `context.idempotencyKey` 处理；pending timeout/lease 和 tombstone retention 不属于 Kernel。
 
 ## 当前验证
-
-本轮验证记录见 [`walkthrough.md`](walkthrough.md) Round 4。当前已验证的是目标 worktree 的 deterministic Memory 行为，以及通过真实 `npm install` 安装当前本地 tarball 后的 Node/TypeScript consumer 行为；本次 `0.2.0` 发布候选 tarball 仍不是 Registry 上的包。未验证真实 durable host、外部 Worker、真实进程恢复、Cosmos 或生产 CI。
+本轮验证记录见 [`walkthrough.md`](walkthrough.md) Round 6。当前已验证目标 worktree 的 deterministic Memory 行为、本地 tarball consumer，以及实际 npm Registry `@notnotype/nb-workflow@0.2.0` 的 Node/Bun runtime 和 TypeScript declaration consumer；未验证真实 durable host、外部 Worker、真实进程恢复、Cosmos 或生产 CI。
 ## 1. 目标
 
 把当前同步 ActivityExecutor 扩展为可被 Cosmos 等 Durable Host 组合的 Deferred Activity 语义，同时保持现有同步 `callAction()` replay 行为。Workflow 作者目标仍是：
@@ -70,7 +69,7 @@ const result = await wf.callAction("source.fetch@1", input);
 
 0.1.2 已提供 Activity identity、fingerprint、journal replay、Run CAS、waiting/signal/timer/child/cancel、ValueRef、Backend/Runner conformance、Node build 和 package smoke。
 
-当前 worktree 已增加可选 `DeferredActivityExecutor`。同步 `ActivityExecutor` 保持原有 `Promise<JsonValue>` 合同；配置 Deferred Port 后，`callAction()` 使用 Deferred Activity 语义，支持 pending receipt、waiting、completion、duplicate/conflict/late completion、ValueRef、cancel tombstone 和 `resumeRequired`。该语义尚未发布，也尚未由真实 durable Backend 验证。
+当前 `0.2.0` 已发布；同步 `ActivityExecutor` 保持原有 `Promise<JsonValue>` 合同，配置 Deferred Port 后，`callAction()` 使用 Deferred Activity 语义，支持 pending receipt、waiting、completion、duplicate/conflict/late completion、ValueRef、cancel tombstone 和 `resumeRequired`。真实 durable Backend 和跨进程恢复尚未验证。
 
 ## 3. 范围
 
@@ -101,7 +100,7 @@ callAction
 2. 选择不破坏 0.1.2 同步 ActivityExecutor 的最小 Port 扩展。已完成。
 3. 实现 Memory 参考语义和 Runner/Backend 集成。已完成。
 4. 完整测试、typecheck、build 和 package smoke 已通过；package smoke 还覆盖真实 npm 安装后的声明解析和 Deferred Activity completion 行为。
-5. 候选 public API 已由当前测试和 tarball consumer 固定；`0.2.0` 是新增 Deferred Activity 公开合同的发布候选。正式稳定承诺仍需 durable Backend conformance；当前 npm `0.1.2` 不包含本 worktree 的 Deferred Activity。
+5. 候选 public API 已由当前测试、真实本地 tarball consumer 和 Registry `0.2.0` consumer 固定；`0.2.0` 已发布。正式 durable Backend conformance、真实进程恢复和 Cosmos Host 仍需独立验收。
 
 ## 7. 验收门禁
 
@@ -120,4 +119,4 @@ bun run verify:package
 
 进入 Cosmos 前必须提供稳定 commit SHA、最终 public API、Deferred Activity conformance、full test、typecheck、build、package smoke、waiting→completion→resume 和 cancel/late completion 证据。
 
-本 Task 当前不授权 Cosmos Host、Prisma Activity 表、Activity Job、Worker Admin、发布后的自动接入、PR 合并或部署；`0.2.0` npm 发布仅按独立发布授权执行。
+本 Task 的 `0.2.0` 发布已完成；仍不授权 Cosmos Host、Prisma Activity 表、Activity Job、Worker Admin、发布后的自动接入、PR 合并或部署。

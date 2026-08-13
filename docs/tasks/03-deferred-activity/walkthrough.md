@@ -1,6 +1,6 @@
 # Task 03 Walkthrough：Deferred Activity
 
-> 状态：Round 4 已完成本地候选门禁；Round 5 进入 `0.2.0` 发布审查，Cosmos 仍未进入实现。
+> 状态：Round 6 已完成 `0.2.0` npm 发布和 Registry consumer 验证；Cosmos 仍未进入实现。
 >
 > Task：[`README.md`](README.md)
 
@@ -305,6 +305,34 @@ Leader 判定：nb-workflow 本地 Kernel 与 package gates 已达到继续下�
 未验证风险：`0.2.0` Registry tarball、外部 consumer、Node 20、远端 CI、真实 durable Backend、跨进程 waiting 恢复、多 Worker fencing、Cosmos Host/Worker、浏览器、Docker、真实 Provider 和生产部署均未验证。
 
 leader 判定：继续 nb-workflow 发布前门禁；Cosmos Host、固定 Ingest parity、Product API 和 Worker Admin 保持停止。
+
+## Round 6：`0.2.0` npm 发布与 Registry consumer 验证
+
+日期：2026-08-13
+
+目标：确认 `0.2.0` 已真实出现在 npm Registry，并用干净目录验证公开入口、Deferred Activity runtime 和 TypeScript declarations；不进入 Cosmos Host。
+
+范围：PR #8 合并后的发布提交 `af162ea114c2fddddf3e1cde2c654d357b217fb2`、npm Registry `@notnotype/nb-workflow@0.2.0`、隔离 consumer 临时根 `.agent/tmp/registry-consumer-20260813/`。没有修改 Cosmos、NeuroBook、Harness dirty master 或其它 worktree。
+
+实际结果：
+
+- `npm publish --access public` 在浏览器认证后完成；Registry `0.2.0` 已可查询，`dist-tags.latest` 为 `0.2.0`。
+- Registry 元数据保持 `main: ./dist/index.js`、`types: ./dist/index.d.ts`、单一 `.` export、`engines.node: >=20` 和 optional `typescript >=5.0.0` peer。
+- Registry tarball integrity：`sha512-tTA/JLA4D+TMvcdGY0/GZbqLaWwek+aBM3/MsxHbFcJaomJswpqjENtQBgiGMv32jKmZCQTc3fFsg/1OcpZkuA==`。
+- 真实 `npm install --ignore-scripts --no-save --no-package-lock --no-audit --no-fund --omit=peer @notnotype/nb-workflow@0.2.0` 成功：`added 1 package in 1s`。
+- Node Registry consumer 通过：`REGISTRY_CONSUMER_OK version=0.2.0 exports=6`。
+- Bun Registry consumer 通过：`REGISTRY_CONSUMER_OK version=0.2.0 exports=6`；直接入口导入通过：`BUN_REGISTRY_IMPORT_OK function function`。
+- TypeScript declaration consumer 使用 Registry 安装包和 NodeNext strict tsc 通过；命令无输出、退出码为 0。
+- Registry runtime 覆盖 pending→completion→resume、重复 completion 幂等、冲突 completion 拒绝和 cancel 后迟到 completion 拒绝。
+- 发布后 `bun run prepublishOnly` 仍输出 `PUBLISH_READY_OK`；PR #8 的远端 `verify` 为 `SUCCESS`。
+
+验证边界：这些 consumer 证明了真实 Registry 包边界和 Memory runtime 公开行为，不证明 Prisma/durable Backend、跨进程恢复、多 Worker fencing、Cosmos Host/Worker、固定 Ingest parity、API manifest-only、Worker Admin、browser、Docker、真实 Provider 或生产部署。
+
+与历史证据的区别：Task 04 convergence worktree 仍是未合并、未基于 `nb-workflow` 的历史 Spike；Cosmos `origin/master@61ed21e` 仍没有 `@notnotype/nb-workflow` consumer、Harness Adapter 或 `cosmos.ingest@1` 的 Kernel consumer。Registry `0.2.0` 的真实安装不等于 Cosmos 已接入。
+
+偏差：首次 `npm publish` 尝试曾因 Windows `EPERM` 扫描 `C:\Users\notnotype\AppData\Local\ElevatedDiagnostics` 失败；单独运行 `npm run prepublishOnly` 已通过，浏览器认证后的再次 publish 成功。该环境问题没有修改发布合同或绕过 gate。
+
+leader 判定：nb-workflow `0.2.0` 发布和 Registry consumer 门禁完成；返回规划，Cosmos Host/Worker、固定 Ingest parity、Product API 和 Worker Admin 保持停止，等待独立 Cosmos 实施授权。
 
 ## 后续轮次模板
 
